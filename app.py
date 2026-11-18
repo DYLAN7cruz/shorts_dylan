@@ -8667,10 +8667,10 @@ async def process_clip_audio(req: AudioProcessRequest, request: Request):
 
     base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
 
-    # Strip any audio_ / restored_ prefixes to find the clean source file
+    # Strip any audio_ / restored_ / vox_ prefixes to find the clean source file
     clean_filename = filename
-    while re.match(r"^(audio_\d+_|restored_\d+_)", clean_filename):
-        clean_filename = re.sub(r"^(audio_\d+_|restored_\d+_)", "", clean_filename)
+    while re.match(r"^(audio_\d+_|restored_\d+_|vox_\d+_)", clean_filename):
+        clean_filename = re.sub(r"^(audio_\d+_|restored_\d+_|vox_\d+_)", "", clean_filename)
 
     # Locate the best clean audio source file:
     # 1. First check if the pre-audio version of the current file exists (e.g. subtitled_..., recut_...)
@@ -8897,6 +8897,286 @@ async def add_custom_watermark(req: WatermarkCustomRequest, request: Request):
         write_json_atomic(json_files[0], data, indent=4)
 
     return {"success": True, "new_video_url": new_url, "text": text}
+
+# --- Local Projects Management (Save, Load & Delete) ---------------------
+
+@app.get("/api/local/projects")
+async def list_local_projects(request: Request):
+    """List all saved clipping projects stored locally on disk."""
+    projects = []
+    if not os.path.exists(OUTPUT_DIR):
+        return {"projects": []}
+
+    for job_id in os.listdir(OUTPUT_DIR):
+        job_dir = os.path.join(OUTPUT_DIR, job_id)
+        if not os.path.isdir(job_dir):
+            continue
+        json_files = glob.glob(os.path.join(job_dir, "*_metadata.json"))
+        if not json_files:
+            continue
+        try:
+            mtime = os.path.getmtime(json_files[0])
+            with open(json_files[0], 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+
+            clips = meta.get('shorts', [])
+            sv = meta.get('source_video')
+            if isinstance(sv, dict):
+                title = sv.get('title') or ""
+            elif isinstance(sv, str) and sv:
+                title = os.path.basename(sv).replace('.mp4', '').replace('_', ' ')
+            else:
+                title = os.path.basename(json_files[0]).replace('_metadata.json', '').replace('_', ' ')
+
+            total_size = 0
+            for root, _, files in os.walk(job_dir):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    if os.path.isfile(fp):
+                        total_size += os.path.getsize(fp)
+            size_mb = round(total_size / (1024 * 1024), 1)
+            first_clip_url = clips[0].get('video_url') if clips else None
+
+            from datetime import datetime
+            dt_str = datetime.fromtimestamp(mtime).strftime("%d/%m/%Y %H:%M")
+
+            projects.append({
+                "job_id": job_id,
+                "title": title,
+                "timestamp": mtime,
+                "formatted_date": dt_str,
+                "clip_count": len(clips),
+                "preview_url": first_clip_url,
+                "size_mb": size_mb,
+                "output_format": meta.get('output_format', 'vertical')
+            })
+        except Exception:
+            continue
+
+    projects.sort(key=lambda p: p["timestamp"], reverse=True)
+    return {"projects": projects}
+
+@app.post("/api/local/projects/{job_id}/load")
+async def load_local_project(job_id: str, request: Request):
+    """Load a saved project from disk into memory and return its result."""
+    job_dir = os.path.join(OUTPUT_DIR, job_id)
+    if not os.path.isdir(job_dir):
+        raise HTTPException(status_code=404, detail="Project not found on disk")
+
+    json_files = glob.glob(os.path.join(job_dir, "*_metadata.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+
+    with open(json_files[0], 'r', encoding='utf-8') as f:
+        meta = json.load(f)
+
+    clips = meta.get('shorts', [])
+    user_id = request.state.user.id if hasattr(request.state, 'user') and request.state.user else "local_user"
+
+    jobs[job_id] = {
+        'status': 'completed',
+        'progress': 100,
+        'result': {
+            'clips': clips,
+            'total_clips': len(clips),
+            'cost_analysis': meta.get('cost_analysis', {}),
+            'output_format': meta.get('output_format', 'vertical'),
+            'source_video': meta.get('source_video', {})
+        },
+        'output_dir': job_dir,
+        'user_id': user_id,
+        'owner_user_id': user_id,
+        'created_at': os.path.getmtime(json_files[0])
+    }
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "status": "complete",
+        "result": jobs[job_id]['result'],
+        "output_format": meta.get('output_format', 'vertical')
+    }
+
+@app.delete("/api/local/projects/{job_id}")
+async def delete_local_project(job_id: str, request: Request):
+    """Delete a saved project directory from disk to free up space."""
+    job_dir = os.path.join(OUTPUT_DIR, job_id)
+    if not os.path.exists(job_dir):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    try:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        if job_id in jobs:
+            del jobs[job_id]
+        return {"success": True, "message": f"Project {job_id} deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete project: {str(e)}")
+
+# --- Free Neural AI Voiceover (Edge-TTS) ---------------------------------
+
+VOICE_CATALOG = [
+    {"id": "es-MX-JorgeNeural", "name": "Jorge (México)", "desc": "Masculina enérgica y viral (estándar de TikTok / Reels)", "flag": "🇲🇽"},
+    {"id": "es-ES-AlvaroNeural", "name": "Álvaro (España)", "desc": "Masculina seria y profunda (documental y podcast)", "flag": "🇪🇸"},
+    {"id": "es-MX-DaliaNeural", "name": "Dalia (México)", "desc": "Femenina dinámica, alegre y expresiva", "flag": "🇲🇽"},
+    {"id": "es-ES-ElviraNeural", "name": "Elvira (España)", "desc": "Femenina elegante, cálida y profesional", "flag": "🇪🇸"},
+    {"id": "es-AR-TomasNeural", "name": "Tomás (Argentina)", "desc": "Masculina moderna, fluida y cercana", "flag": "🇦🇷"},
+    {"id": "es-US-AlonsoNeural", "name": "Alonso (Latam)", "desc": "Masculina joven de creador de contenido", "flag": "🌎"}
+]
+
+@app.get("/api/clip/{job_id}/{clip_index}/transcript")
+async def get_clip_transcript(job_id: str, clip_index: int, request: Request):
+    """Get the extracted transcript text for a specific clip and available voices."""
+    output_dir = os.path.join(OUTPUT_DIR, job_id)
+    json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+
+    with open(json_files[0], 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    clips = data.get('shorts', [])
+    if clip_index >= len(clips):
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    clip = clips[clip_index]
+    c_start = float(clip.get('start', 0))
+    c_end = float(clip.get('end', 0))
+
+    transcript = data.get('transcript', {})
+    segments = transcript.get('segments', []) if isinstance(transcript, dict) else []
+    matched = [s.get('text', '').strip() for s in segments if s.get('start', 0) >= c_start - 0.75 and s.get('end', 0) <= c_end + 0.75]
+
+    text = " ".join([m for m in matched if m]).strip()
+    if not text:
+        text = clip.get('viral_hook_text') or clip.get('video_title_for_youtube_short') or ""
+
+    return {
+        "text": text,
+        "clip_duration": round(c_end - c_start, 1),
+        "voices": VOICE_CATALOG
+    }
+
+class VoiceoverRequest(BaseModel):
+    job_id: str
+    clip_index: int
+    text: str
+    voice: Optional[str] = "es-MX-JorgeNeural"
+    speed: Optional[float] = 1.05
+    mode: Optional[str] = "ducking"
+    input_filename: Optional[str] = None
+
+@app.post("/api/clip/voiceover")
+async def apply_ai_voiceover(req: VoiceoverRequest, request: Request):
+    """Generate free Edge-TTS neural speech and blend or replace voice in video."""
+    await require_managed_entitlement(request)
+    await _ensure_job_files(req.job_id, request)
+    if req.job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = jobs[req.job_id]
+    await _assert_job_owner(request, job)
+    output_dir = os.path.join(OUTPUT_DIR, req.job_id)
+    json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+
+    with open(json_files[0], 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    clips = data.get('shorts', [])
+    if req.clip_index >= len(clips):
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    clip_data = clips[req.clip_index]
+    if req.input_filename:
+        filename = os.path.basename(req.input_filename)
+    else:
+        filename = clip_data.get('video_url', '').split('/')[-1]
+        if not filename:
+            base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
+            filename = f"{base_name}_clip_{req.clip_index+1}.mp4"
+
+    input_path = os.path.join(output_dir, filename)
+    if not os.path.exists(input_path):
+        raise HTTPException(status_code=404, detail=f"Video file not found: {input_path}")
+
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Voiceover text cannot be empty")
+
+    voice = req.voice or "es-MX-JorgeNeural"
+    speed_pct = int(round((float(req.speed or 1.05) - 1.0) * 100))
+    rate_param = f"{speed_pct:+d}%"
+
+    tts_audio_path = os.path.join(output_dir, f"temp_tts_{int(time.time())}.mp3")
+
+    try:
+        import edge_tts
+        communicate = edge_tts.Communicate(text, voice, rate=rate_param)
+        await communicate.save(tts_audio_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating Edge-TTS audio: {str(e)}")
+
+    if not os.path.exists(tts_audio_path) or os.path.getsize(tts_audio_path) == 0:
+        raise HTTPException(status_code=500, detail="Generated audio file is empty")
+
+    clean_filename = re.sub(r"^(vox_\d+_|audio_\d+_)", "", filename)
+    output_filename = f"vox_{int(time.time())}_{clean_filename}"
+    output_path = os.path.join(output_dir, output_filename)
+
+    mode = req.mode or "ducking"
+    if mode == "replace":
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-i", tts_audio_path,
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k",
+            output_path
+        ]
+    else:
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-i", tts_audio_path,
+            "-filter_complex",
+            "[0:a]volume=0.15[bg];[1:a]volume=1.25[vox];[bg][vox]amix=inputs=2:duration=first:dropout_transition=2,loudnorm=I=-14:LRA=7:TP=-1.5[aout]",
+            "-map", "0:v:0",
+            "-map", "[aout]",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k",
+            output_path
+        ]
+
+    def run_merge():
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if res.returncode != 0:
+            err = res.stderr.decode(errors="replace")
+            print(f"❌ Voiceover FFmpeg error: {err[-300:]}")
+            raise RuntimeError(f"Voiceover merge failed: {err[-120:]}")
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_merge)
+
+    try:
+        if os.path.exists(tts_audio_path):
+            os.remove(tts_audio_path)
+    except Exception:
+        pass
+
+    output_filename = await _deliver(request, req.job_id, output_filename)
+    new_url = f"/videos/{req.job_id}/{output_filename}"
+
+    if req.clip_index < len(job['result']['clips']):
+        job['result']['clips'][req.clip_index]['video_url'] = new_url
+    if req.clip_index < len(clips):
+        clips[req.clip_index]['video_url'] = new_url
+        data['shorts'] = clips
+        write_json_atomic(json_files[0], data, indent=4)
+
+    return {"success": True, "new_video_url": new_url, "voice": voice}
 
 class TranslateRequest(BaseModel):
     job_id: str

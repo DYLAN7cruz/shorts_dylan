@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, Share2, AlertCircle, Loader2, Copy, Check, Wand2, Type, Calendar, Languages, FileText, Link2, Scissors, Crosshair, TrendingUp, Sparkles, Volume2, Tag } from 'lucide-react';
+import { Download, Share2, AlertCircle, Loader2, Copy, Check, Wand2, Type, Calendar, Languages, FileText, Link2, Scissors, Crosshair, TrendingUp, Sparkles, Volume2, Tag, Bot } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch } from '../lib/api';
 import { platformOptions as buildPlatformOptions, defaultPlatformFlags, flagsFromList } from '../lib/socialPlatforms';
@@ -9,6 +9,7 @@ import HookModal from './HookModal';
 import TranslateModal from './TranslateModal';
 import AudioModal from './AudioModal';
 import BrandWatermarkModal from './BrandWatermarkModal';
+import VoiceoverModal from './VoiceoverModal';
 import Modal from './ui/Modal';
 import SegmentedControl from './ui/SegmentedControl';
 import WatermarkModal, { watermarkNoticeDismissed } from './WatermarkModal';
@@ -81,6 +82,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     const [showDescModal, setShowDescModal] = useState(false);
     const [showSubtitleModal, setShowSubtitleModal] = useState(false);
     const [showAudioModal, setShowAudioModal] = useState(false);
+    const [showVoiceoverModal, setShowVoiceoverModal] = useState(false);
     const [showBrandWatermarkModal, setShowBrandWatermarkModal] = useState(false);
     const [showWatermarkModal, setShowWatermarkModal] = useState(false);
     const { plan } = useAuth();
@@ -97,6 +99,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                  .replace(/^hooked_\d+_/, '')
                  .replace(/^hook_/, '')
                  .replace(/^audio_\d+_/, '')
+                 .replace(/^vox_\d+_/, '')
                  .replace(/^branded_\d+_/, '')
                  .replace(/^restored_\d+_/, '');
         } while (f !== prev);
@@ -734,6 +737,13 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
         if (videoRef.current) videoRef.current.load();
     };
 
+    const handleVoiceoverApplied = (newUrl) => {
+        if (!newUrl) return;
+        setCurrentVideoUrl(getApiUrl(newUrl));
+        setServerVideoFile(newUrl.split('/').pop());
+        if (videoRef.current) videoRef.current.load();
+    };
+
     const handleBrandWatermarkApplied = (newUrl) => {
         if (!newUrl) return;
         setCurrentVideoUrl(getApiUrl(newUrl));
@@ -1115,6 +1125,15 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     </button>
 
                     <button
+                        onClick={() => setShowVoiceoverModal(true)}
+                        className={QUIET_BTN}
+                        title="Generar narración con voz de locutor IA estilo ElevenLabs (100% gratis)"
+                    >
+                        <Bot size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
+                        voz ia
+                    </button>
+
+                    <button
                         onClick={() => setShowAudioModal(true)}
                         className={QUIET_BTN}
                         title="Ajustar tono, anti-copyright y calidad de audio de estudio"
@@ -1365,6 +1384,15 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     onContinue={downloadClip}
                 />
             )}
+
+            <VoiceoverModal
+                isOpen={showVoiceoverModal}
+                onClose={() => setShowVoiceoverModal(false)}
+                jobId={jobId}
+                clipIndex={index}
+                currentVideoUrl={currentVideoUrl}
+                onVoiceoverApplied={handleVoiceoverApplied}
+            />
 
             <AudioModal
                 isOpen={showAudioModal}

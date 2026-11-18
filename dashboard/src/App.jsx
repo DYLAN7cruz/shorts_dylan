@@ -28,6 +28,7 @@ import HistoryTab from './components/HistoryTab';
 import AutopilotTab from './components/AutopilotTab';
 import ProfileMenu from './components/ProfileMenu';
 import Modal from './components/ui/Modal';
+import ProjectsModal from './components/ProjectsModal';
 import { useAuth } from './contexts/AuthContext';
 import { apiFetch, apiJson, QuotaError, QUOTA_WALL_EVENT } from './lib/api';
 import { SOCIAL_PLATFORMS } from './lib/socialPlatforms';
@@ -364,9 +365,21 @@ function App() {
   });
   const [autopilotOn, setAutopilotOn] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
+  const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [jobId, setJobId] = useState(null);
   const [status, setStatus] = useState('idle'); // idle, processing, complete, error
   const [results, setResults] = useState(null);
+
+  const handleProjectLoaded = (projectData) => {
+    if (!projectData) return;
+    setJobId(projectData.job_id);
+    setResults(projectData.result);
+    setStatus('complete');
+    setActiveTab('dashboard');
+    try {
+      localStorage.setItem('active_job_id', projectData.job_id);
+    } catch (_) {}
+  };
   // Best clips first. The backend hands them back in transcript order, which
   // buries the strongest one wherever it happens to fall in the video — and
   // the first card is the one people actually watch and publish.
@@ -1354,6 +1367,7 @@ function App() {
     setQueueInfo(null);
     setJobError('');
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem('active_job_id');
   };
   useEffect(() => {
     handleResetRef.current = handleReset;
@@ -1372,7 +1386,7 @@ function App() {
     { id: 'ai-agent', ord: '04', icon: Bot, label: 'AI Agent', short: 'agent', byok: true },
     { id: 'ugc-gallery', ord: '05', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true },
     { id: 'thumbnails', ord: '06', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true },
-    ...(billingEnabled && isSignedIn ? [{ id: 'history', ord: '07', icon: History, label: 'History', short: 'history' }] : []),
+    ...(billingEnabled && isSignedIn ? [{ id: 'history', ord: '07', icon: History, label: 'History', short: 'history' }] : [{ id: 'projects', ord: '07', icon: History, label: 'Mis Proyectos', short: 'proyectos', primary: true }]),
     { id: 'settings', ord: '08', icon: Settings, label: 'Settings', short: 'settings' },
   ];
   const activeNav = navItems.find((n) => n.id === activeTab);
@@ -1387,6 +1401,11 @@ function App() {
   }, [navOpen]);
 
   const goToTab = (id) => {
+    if (id === 'projects') {
+      setShowProjectsModal(true);
+      setNavOpen(false);
+      return;
+    }
     if (tutorialLock && id !== 'dashboard') return;
     setActiveTab(id);
     setNavOpen(false);
@@ -1616,6 +1635,14 @@ function App() {
                 <span className="hidden sm:inline">New Project</span>
               </button>
             )}
+            <button
+              onClick={() => setShowProjectsModal(true)}
+              className="btn-quiet px-3 py-1.5 text-xs shrink-0 flex items-center gap-1.5 border border-rule hover:border-brass/50 text-ink"
+              title="Ver clips y proyectos guardados en disco"
+            >
+              <History size={13} className="text-brass" />
+              <span className="hidden sm:inline">Mis Proyectos</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4 shrink-0">
@@ -2588,6 +2615,12 @@ function App() {
         <MobileTabBar />
 
       </main>
+
+      <ProjectsModal
+        isOpen={showProjectsModal}
+        onClose={() => setShowProjectsModal(false)}
+        onProjectLoaded={handleProjectLoaded}
+      />
 
       {/* Missing API Key Modal */}
       <Modal

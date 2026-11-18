@@ -261,17 +261,3 @@ export default function AudioModal({ isOpen, onClose, jobId, clipIndex, currentV
         </Modal>
     );
 }
-                                    type="checkbox"
-                                    checked={normalize}
-                                    onChange={(e) => setNormalize(e.target.checked)}
-                                    className="rounded accent-brass"
-                                />
-                                Normalizar Vol.
-                            </label>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </Modal>
-    );
-}

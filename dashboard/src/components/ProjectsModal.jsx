@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { FolderKanban, Trash2, Play, ExternalLink, HardDrive, Film, Clock, Loader2, AlertTriangle } from 'lucide-react';
 import Modal from './ui/Modal';
-import { apiFetch, getApiUrl } from '../lib/api';
+import { apiFetch } from '../lib/api';
+import { getApiUrl } from '../config';
 
 export default function ProjectsModal({ isOpen, onClose, onProjectLoaded }) {
     const [projects, setProjects] = useState([]);

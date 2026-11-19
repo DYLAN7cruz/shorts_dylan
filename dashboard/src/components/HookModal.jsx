@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sparkles } from 'lucide-react';
+import { apiFetch } from '../lib/api';
 import RemotionPreview from './RemotionPreview';
 import Modal from './ui/Modal';
 import SegmentedControl from './ui/SegmentedControl';
@@ -70,6 +71,26 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
     const effectiveFont = font || styleFont(style);
     const [entranceAnimation, setEntranceAnimation] = useState(prefs.entranceAnimation || 'spring');
     const [displayDuration, setDisplayDuration] = useState(5);
+    const [isTranslating, setIsTranslating] = useState(false);
+
+    const handleTranslateHook = async () => {
+        if (!text.trim()) return;
+        setIsTranslating(true);
+        try {
+            const res = await apiFetch('/api/clip/translate-hook', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            if (data.hook) setText(data.hook);
+        } catch (err) {
+            console.error("Hook translation failed:", err);
+        } finally {
+            setIsTranslating(false);
+        }
+    };
 
     if (!isOpen) return null;
 
@@ -148,11 +169,23 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                     <div className="space-y-5 flex-1 overflow-y-auto custom-scrollbar pr-1">
                         {/* Text Input */}
                         <div>
-                            <p className="eyebrow mb-2">Text</p>
+                            <div className="flex items-center justify-between mb-2">
+                                <p className="eyebrow">Text</p>
+                                <button
+                                    type="button"
+                                    onClick={handleTranslateHook}
+                                    disabled={isTranslating || !text.trim()}
+                                    className="flex items-center gap-1 text-[11px] font-medium text-brass hover:underline disabled:opacity-40"
+                                    title="Traducir o adaptar este gancho a español viral con Gemini"
+                                >
+                                    {isTranslating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                                    {isTranslating ? 'traduciendo...' : 'traducir a español ✨'}
+                                </button>
+                            </div>
                             <textarea
                                 value={text}
                                 onChange={(e) => setText(e.target.value)}
-                                rows={4}
+                                rows={3}
                                 className="input-field resize-none"
                                 placeholder="Enter text that will stop the scroll..."
                             />
@@ -314,6 +347,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                                 } catch { /* ignore */ }
                                 onGenerate({
                                     text, position, size, style, font: effectiveFont,
+                                    duration_seconds: displayDuration,
                                     // Remotion data
                                     remotion: hookConfig,
                                 });

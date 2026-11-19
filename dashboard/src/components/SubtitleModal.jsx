@@ -91,6 +91,7 @@ const CAPTION_PRESETS = [
     // the active word, one big word at a time, and the clean shadow-only look.
     { id: 'hormozi', label: 'Hormozi',  style: 'karaoke', effect: 'pop',       highlightColor: '#FFE500', baseOpacity: 1.0, uppercase: true,  fontName: 'Montserrat ExtraBold', borderWidth: 4, shadow: 2, reveal: true, fontSize: 44 },
     { id: 'pill',    label: 'Pill',     style: 'karaoke', effect: 'highlight', highlightColor: '#7C3AED', baseOpacity: 1.0, uppercase: true,  fontName: 'Montserrat ExtraBold', borderWidth: 3, fontSize: 44 },
+    { id: 'cover_box', label: 'Tapa-Subtítulos (Ocultar Viejos)', style: 'karaoke', effect: 'pop', highlightColor: '#FFE500', baseOpacity: 1.0, uppercase: true, fontName: 'Montserrat ExtraBold', borderWidth: 4, fontSize: 42, bgOpacity: 1.0, bgColor: '#000000' },
     { id: 'oneword', label: 'One word', style: 'karaoke', effect: 'pop',       highlightColor: '#FFFFFF', baseOpacity: 1.0, uppercase: true,  fontName: 'Anton', borderWidth: 5, oneWord: true, fontSize: 70 },
     { id: 'clean',   label: 'Clean',    style: 'karaoke', effect: 'none',      highlightColor: '#FFFFFF', baseOpacity: 0.7, uppercase: false, fontName: 'Montserrat ExtraBold', borderWidth: 0, shadow: 2, fontSize: 34 },
     { id: 'cine',    label: 'Cine',     style: 'karaoke', effect: 'none',      highlightColor: '#FF5A1F', baseOpacity: 0.8, uppercase: false, fontName: 'Montserrat ExtraBold', borderWidth: 0, shadow: 2, fontSize: 36 },
@@ -161,7 +162,8 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
         setFontName(p.fontName);
         setBorderWidth(p.borderWidth);
         setFontColor('#FFFFFF');
-        setBgOpacity(0);
+        setBgOpacity(p.bgOpacity !== undefined ? p.bgOpacity : 0);
+        setBgColor(p.bgColor || '#000000');
         setReveal(!!p.reveal);
         setShadow(p.shadow || 0);
         setOneWord(!!p.oneWord);

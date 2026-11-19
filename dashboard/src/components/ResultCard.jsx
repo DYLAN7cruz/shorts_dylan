@@ -242,6 +242,60 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
         }
     };
 
+    const [currentTitle, setCurrentTitle] = useState(clip.video_title_for_youtube_short || "Viral Short Video");
+    const [currentDescription, setCurrentDescription] = useState(clip.video_description_for_tiktok || clip.video_description_for_instagram || "");
+    const [currentWhy, setCurrentWhy] = useState(clip.why || "");
+    const [isTranslatingMeta, setIsTranslatingMeta] = useState(false);
+    const [translatedNotice, setTranslatedNotice] = useState(false);
+
+    const handleTranslateMetadata = async () => {
+        setIsTranslatingMeta(true);
+        setEditError(null);
+        try {
+            const res = await apiFetch('/api/clip/translate-metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    job_id: jobId,
+                    clip_index: index,
+                    target_language: 'es'
+                })
+            });
+            if (!res.ok) {
+                let detail = 'Error traduciendo metadatos';
+                try { detail = (await res.json()).detail; } catch {}
+                throw new Error(detail);
+            }
+            const data = await res.json();
+            if (data.title) {
+                clip.video_title_for_youtube_short = data.title;
+                setCurrentTitle(data.title);
+                setPostTitle(data.title);
+            }
+            if (data.description) {
+                clip.video_description_for_tiktok = data.description;
+                clip.video_description_for_instagram = data.description;
+                setCurrentDescription(data.description);
+                setPostDescription(data.description);
+            }
+            if (data.hook) {
+                clip.viral_hook_text = data.hook;
+                if (clip.auto_hook) clip.auto_hook.text = data.hook;
+            }
+            if (data.why) {
+                clip.why = data.why;
+                setCurrentWhy(data.why);
+            }
+            setTranslatedNotice(true);
+            setTimeout(() => setTranslatedNotice(false), 4000);
+        } catch (e) {
+            setEditError(e.message);
+            setTimeout(() => setEditError(null), 5000);
+        } finally {
+            setIsTranslatingMeta(false);
+        }
+    };
+
     const [isEditing, setIsEditing] = useState(false);
     const [isSubtitling, setIsSubtitling] = useState(false);
     const [isHooking, setIsHooking] = useState(false);
@@ -612,7 +666,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     size: payload.size,
                     style: payload.style || 'pill',
                     font: payload.font || null,
-                    duration_seconds: payload.remotion?.displayDurationSec ?? null,
+                    duration_seconds: payload.duration_seconds || payload.remotion?.displayDurationSec || null,
                     input_filename: serverVideoFile
                 })
             });
@@ -938,12 +992,12 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             {/* Right: Content & Details */}
             <div className="flex-1 p-4 md:p-5 flex flex-col overflow-hidden min-w-0">
                 <div className="mb-4">
-                    <h3 className="text-base font-medium text-ink leading-tight line-clamp-2 mb-2 break-words" title={clip.video_title_for_youtube_short}>
-                        {clip.video_title_for_youtube_short || "Viral Clip Generated"}
+                    <h3 className="text-base font-medium text-ink leading-tight line-clamp-2 mb-2 break-words" title={currentTitle}>
+                        {currentTitle || "Viral Clip Generated"}
                     </h3>
                     {/* The score alone says how much, not why. One line from
                         the selection pass on what this moment has going for it. */}
-                    {clip.why && (
+                    {(currentWhy || clip.why) && (
                         <div
                             className="relative mb-2"
                             onMouseEnter={() => setWhyOpen(true)}
@@ -955,14 +1009,14 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                                 onClick={() => whyClamped && setWhyOpen(v => !v)}
                                 aria-label="why openshorts picked this moment"
                             >
-                                {clip.why}
+                                {currentWhy || clip.why}
                             </p>
                             {whyClamped && whyOpen && (
                                 <div
                                     role="tooltip"
                                     className="absolute left-0 right-0 top-full mt-1 z-20 bg-paper border border-rule rounded-input px-3 py-2 text-xs text-ink leading-snug shadow-lg"
                                 >
-                                    {clip.why}
+                                    {currentWhy || clip.why}
                                 </div>
                             )}
                         </div>
@@ -979,13 +1033,26 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
 
                 {/* Descriptions (compact) — full text lives in the modal */}
                 <div className="flex-1 min-h-0 space-y-2 mb-4">
+                    <div className="flex items-center justify-between px-0.5">
+                        <span className="eyebrow text-muted">METADATOS & TÍTULOS</span>
+                        <button
+                            onClick={handleTranslateMetadata}
+                            disabled={isTranslatingMeta}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-brass hover:underline disabled:opacity-40 transition-all"
+                            title="Traducir y viralizar título, descripción y gancho a español con Gemini Pro"
+                        >
+                            {isTranslatingMeta ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                            {isTranslatingMeta ? 'traduciendo con ia…' : (translatedNotice ? '¡traducido a español! ✓' : 'traducir a español ✨')}
+                        </button>
+                    </div>
+
                     <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0 overflow-hidden">
                         <span className="eyebrow shrink-0">YOUTUBE</span>
                         <p className="text-xs text-ink2 truncate flex-1 min-w-0">
-                            {clip.video_title_for_youtube_short || "Viral Short Video"}
+                            {currentTitle || "Viral Short Video"}
                         </p>
                         <button
-                            onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
+                            onClick={() => handleCopy('youtube', currentTitle || "Viral Short Video")}
                             aria-label="copy youtube title"
                             className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
                         >
@@ -996,10 +1063,10 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0 overflow-hidden">
                         <span className="eyebrow shrink-0">TIKTOK · IG</span>
                         <p className="text-xs text-ink2 truncate flex-1 min-w-0">
-                            {clip.video_description_for_tiktok || clip.video_description_for_instagram}
+                            {currentDescription || clip.video_description_for_tiktok || clip.video_description_for_instagram}
                         </p>
                         <button
-                            onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
+                            onClick={() => handleCopy('caption', currentDescription || clip.video_description_for_tiktok || clip.video_description_for_instagram)}
                             aria-label="copy caption"
                             className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
                         >
@@ -1185,11 +1252,21 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 size="md"
             >
                 <div className="space-y-4">
+                    <div className="flex justify-end">
+                        <button
+                            onClick={handleTranslateMetadata}
+                            disabled={isTranslatingMeta}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-brass hover:underline disabled:opacity-40"
+                        >
+                            {isTranslatingMeta ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                            {isTranslatingMeta ? 'traduciendo con ia…' : (translatedNotice ? '¡traducido a español! ✓' : 'traducir a español ✨')}
+                        </button>
+                    </div>
                     <div>
                         <div className="flex items-center justify-between gap-2 mb-1.5">
                             <label className="eyebrow">YOUTUBE TITLE</label>
                             <button
-                                onClick={() => handleCopy('youtube', clip.video_title_for_youtube_short || "Viral Short Video")}
+                                onClick={() => handleCopy('youtube', currentTitle || "Viral Short Video")}
                                 aria-label="copy youtube title"
                                 className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
                             >
@@ -1197,7 +1274,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             </button>
                         </div>
                         <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule">
-                            {clip.video_title_for_youtube_short || "Viral Short Video"}
+                            {currentTitle || "Viral Short Video"}
                         </p>
                     </div>
 
@@ -1205,7 +1282,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         <div className="flex items-center justify-between gap-2 mb-1.5">
                             <label className="eyebrow">TIKTOK · IG CAPTION</label>
                             <button
-                                onClick={() => handleCopy('caption', clip.video_description_for_tiktok || clip.video_description_for_instagram)}
+                                onClick={() => handleCopy('caption', currentDescription || clip.video_description_for_tiktok || clip.video_description_for_instagram)}
                                 aria-label="copy caption"
                                 className="p-1 rounded-full text-muted hover:text-brass transition-colors shrink-0"
                             >
@@ -1213,7 +1290,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             </button>
                         </div>
                         <p className="text-sm text-ink2 select-all break-words bg-paper rounded-input p-3 border border-rule whitespace-pre-wrap">
-                            {clip.video_description_for_tiktok || clip.video_description_for_instagram}
+                            {currentDescription || clip.video_description_for_tiktok || clip.video_description_for_instagram}
                         </p>
                     </div>
                 </div>

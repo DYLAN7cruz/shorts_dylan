@@ -285,6 +285,11 @@ CAPTION_PRESETS = {
     "lime": {**_PRESET_BASE, "font_name": "Montserrat ExtraBold", "font_size": 44,
              "highlight_color": "#A3FF12", "border_width": 3, "effect": "highlight",
              "uppercase": True, "max_chars": 9},
+    # Tapa-subtítulos: Oculta subtítulos previos con una barra/caja oscura opaca
+    "cover_box": {**_PRESET_BASE, "font_name": "Montserrat ExtraBold", "font_size": 42,
+                  "highlight_color": "#FFE500", "border_width": 4, "effect": "pop",
+                  "uppercase": True, "bg_opacity": 1.0, "bg_color": "#000000",
+                  "max_chars": 11},
     # One big word at a time.
     "oneword": {**_PRESET_BASE, "font_name": "Anton", "font_size": 70,
                 "highlight_color": "#FFFFFF", "border_width": 5, "effect": "pop",
@@ -516,7 +521,7 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     if bg_opacity > 0:
         border_style = 3
         outline_colour = hex_to_ass_color(bg_color, bg_opacity, fallback="000000")
-        outline_width = 1
+        outline_width = max(3, int(border_width))
     else:
         border_style = 1
         outline_colour = hex_to_ass_color(border_color, 1.0, fallback="000000")
@@ -735,7 +740,7 @@ def subtitles_filter(srt_path, alignment=2, fontsize=16,
         # Box mode: opaque background box
         border_style = 3
         outline_colour = hex_to_ass_color(bg_color, bg_opacity, fallback="000000")
-        outline_width = 1
+        outline_width = max(3, int(border_width))
     else:
         # Outline mode: text border/outline
         border_style = 1

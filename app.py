@@ -9178,6 +9178,158 @@ async def apply_ai_voiceover(req: VoiceoverRequest, request: Request):
 
     return {"success": True, "new_video_url": new_url, "voice": voice}
 
+class TranslateMetadataRequest(BaseModel):
+    job_id: str
+    clip_index: int
+    target_language: Optional[str] = "es"
+
+@app.post("/api/clip/translate-metadata")
+async def translate_clip_metadata(req: TranslateMetadataRequest, request: Request):
+    """Translate and adapt video title, description, and viral hook to punchy viral Spanish using Gemini Pro."""
+    await require_managed_entitlement(request)
+    await _ensure_job_files(req.job_id, request)
+    if req.job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = jobs[req.job_id]
+    await _assert_job_owner(request, job)
+    output_dir = os.path.join(OUTPUT_DIR, req.job_id)
+    json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+
+    with open(json_files[0], 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    clips = data.get('shorts', [])
+    if req.clip_index < 0 or req.clip_index >= len(clips):
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    clip = clips[req.clip_index]
+    orig_title = clip.get('video_title_for_youtube_short') or ""
+    orig_desc = clip.get('video_description_for_tiktok') or clip.get('video_description_for_instagram') or ""
+    orig_hook = (clip.get('auto_hook') or {}).get('text') or clip.get('viral_hook_text') or ""
+    orig_why = clip.get('why') or ""
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY no está configurada en el servidor.")
+
+    model_name = os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite"
+
+    prompt = (
+        f"Eres un experto en crecimiento de canales de YouTube Shorts, TikTok e Instagram Reels en español.\n"
+        f"Tu tarea es traducir y adaptar los siguientes metadatos de un clip en inglés a un español sumamente atractivo, viral y natural.\n\n"
+        f"Directrices:\n"
+        f"1. Título (YouTube Short): Máximo 60 caracteres, clickeable, genera alta curiosidad o sorpresa, incluye 1 o 2 emojis relevantes.\n"
+        f"2. Descripción (TikTok/Instagram): 1-2 frases enganchadoras, llamado a la acción para comentar y 4-6 hashtags populares en español (#Shorts, #Gaming, #Viral, etc.).\n"
+        f"3. Gancho Viral (Hook para los primeros 3-5 segundos): Frase muy breve y potente para poner como texto en el video (ejemplo estilo 'POV:' o advertencia impactante).\n"
+        f"4. Razón (Why): Breve explicación de por qué este momento es viral en 1 frase en español.\n\n"
+        f"Contenido original:\n"
+        f"Título actual: {orig_title}\n"
+        f"Descripción actual: {orig_desc}\n"
+        f"Gancho actual: {orig_hook}\n"
+        f"Por qué se eligió: {orig_why}\n\n"
+        f"Responde estrictamente en formato JSON con las claves exactas: 'title', 'description', 'hook', 'why'."
+    )
+
+    def run_translation():
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return resp.text
+
+    loop = asyncio.get_event_loop()
+    try:
+        raw_result = await loop.run_in_executor(None, run_translation)
+        parsed = json.loads(raw_result)
+    except Exception as e:
+        print(f"❌ Gemini translation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al traducir con Gemini: {str(e)}")
+
+    new_title = parsed.get("title") or orig_title
+    new_desc = parsed.get("description") or orig_desc
+    new_hook = parsed.get("hook") or orig_hook
+    new_why = parsed.get("why") or orig_why
+
+    # Update metadata file
+    clip['video_title_for_youtube_short'] = new_title
+    clip['video_description_for_tiktok'] = new_desc
+    clip['video_description_for_instagram'] = new_desc
+    clip['viral_hook_text'] = new_hook
+    clip['why'] = new_why
+    if clip.get('auto_hook'):
+        clip['auto_hook']['text'] = new_hook
+
+    clips[req.clip_index] = clip
+    data['shorts'] = clips
+
+    try:
+        write_json_atomic(json_files[0], data, indent=4)
+    except Exception as e:
+        print(f"⚠️ Failed to write translated metadata: {e}")
+
+    # Update memory
+    if req.clip_index < len(job.get('result', {}).get('clips', [])):
+        mem_clip = job['result']['clips'][req.clip_index]
+        mem_clip['video_title_for_youtube_short'] = new_title
+        mem_clip['video_description_for_tiktok'] = new_desc
+        mem_clip['video_description_for_instagram'] = new_desc
+        mem_clip['viral_hook_text'] = new_hook
+        mem_clip['why'] = new_why
+        if mem_clip.get('auto_hook'):
+            mem_clip['auto_hook']['text'] = new_hook
+
+    return {
+        "success": True,
+        "title": new_title,
+        "description": new_desc,
+        "hook": new_hook,
+        "why": new_why
+    }
+
+class TranslateHookRequest(BaseModel):
+    text: str
+    target_language: Optional[str] = "es"
+
+@app.post("/api/clip/translate-hook")
+async def translate_single_hook(req: TranslateHookRequest, request: Request):
+    """Translate or optimize a single hook text into punchy viral Spanish."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY no configurada")
+    model_name = os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite"
+
+    prompt = (
+        f"Eres un experto en ganchos virales para TikTok y Reels.\n"
+        f"Traduce o adapta este gancho en inglés a una frase viral en español corta, impactante y magnética (máximo 8-10 palabras, ideal estilo POV o frase intrigante):\n"
+        f"'{req.text}'\n\n"
+        f"Responde en JSON con la clave 'hook'."
+    )
+    def run_hook_trans():
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return resp.text
+
+    loop = asyncio.get_event_loop()
+    try:
+        raw_result = await loop.run_in_executor(None, run_hook_trans)
+        parsed = json.loads(raw_result)
+        return {"success": True, "hook": parsed.get("hook", req.text)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 class TranslateRequest(BaseModel):
     job_id: str
     clip_index: int

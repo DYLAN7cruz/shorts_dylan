@@ -133,3 +133,26 @@ class TestSplitFiltergraph:
     def test_both_halves_scale_to_the_same_size(self):
         graph = split_filtergraph(1920, 1080, 1080, 1920, (600, 400), (1400, 400))
         assert graph.count("scale=1080:960") == 2
+
+    def test_custom_minimap_split_crops_corner_without_full_width(self):
+        # Minimap in bottom-left corner at 25% height
+        w, h, x, y, half_h = split_geometry(
+            1920, 1080, 1080, 1920, (0.1582 * 1920, 0.9384 * 1080), part_ratio=0.25, is_manual=True)
+        assert half_h == 480
+        assert w < 1000  # Must not blow up to 1920px full width!
+        assert x == 0  # Positioned at left edge
+        assert y > 700  # Positioned at bottom edge where minimap sits
+        assert abs((w / h) - (1080 / 480)) < 0.05
+
+    def test_custom_split_manual_centering_respects_coordinates(self):
+        # Center in middle of screen
+        cx, cy = 960, 540
+        w, h, x, y, _ = split_geometry(1920, 1080, 1080, 1920, (cx, cy), part_ratio=0.75, is_manual=True)
+        assert x == int(round(cx - w / 2)) - (int(round(cx - w / 2)) % 2)
+        assert y == int(round(cy - h / 2)) - (int(round(cy - h / 2)) % 2)
+
+    def test_custom_streamer_split_graph_scales_correctly(self):
+        graph = split_filtergraph(1920, 1080, 1080, 1920, (300, 300), (960, 540), top_ratio=0.35, is_manual=True)
+        assert "scale=1080:672" in graph
+        assert "scale=1080:1248" in graph
+        assert "pad=1080:1920" in graph

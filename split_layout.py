@@ -145,24 +145,50 @@ def analyze_scene(frames, frame_w):
     return left, right
 
 
-def split_geometry(orig_w, orig_h, out_w, out_h, centre, part_ratio=0.5, zoom=1.0):
+def split_geometry(orig_w, orig_h, out_w, out_h, centre, part_ratio=0.5, zoom=1.0, is_manual=False):
     """Crop box (w, h, x, y) framing ``centre`` for one part of the stack.
 
     When part_ratio is 0.5, each half is out_w x out_h/2.
     For streamer/minimap splits, top is typically 0.25 to 0.40 and bottom is the remainder.
-    zoom allows zooming in (e.g. 1.0 to 3.0) to frame just a face, radar, or minimap.
+    zoom allows zooming in (e.g. 0.8 to 3.0) to frame just a face, radar, or minimap.
     """
     half_h = int(round(out_h * part_ratio))
     half_h -= half_h % 2
     aspect = out_w / float(half_h)
 
-    z = max(1.0, min(3.0, float(zoom or 1.0)))
-    base_crop_h = int(round(orig_h * max(0.25, min(SPLIT_TIGHTNESS, 1.0))))
-    crop_h = int(round(base_crop_h / z))
-    crop_w = int(round(crop_h * aspect))
-    if crop_w > orig_w:
-        crop_w = orig_w
-        crop_h = int(round(crop_w / aspect))
+    z = max(0.5, min(3.0, float(zoom or 1.0)))
+
+    # For manual overrides or custom non-50/50 splits:
+    # use dynamic sizing so crops for small parts (minimap/webcam) or large parts (gameplay)
+    # match 1:1 with what the user framed in the Reframe Pro editor!
+    if is_manual or abs(part_ratio - 0.5) > 0.04:
+        if part_ratio <= 0.45:
+            # Smaller slice (e.g. minimap, creator facecam, banner)
+            base_h = orig_h * min(0.90, max(0.18, (part_ratio / 0.50) * 0.55))
+        elif part_ratio >= 0.55:
+            # Larger slice (e.g. main gameplay, background action)
+            base_h = orig_h * min(1.0, max(0.50, (part_ratio / 0.50) * 0.70))
+        else:
+            # 50/50 manual split
+            base_h = orig_h * 0.82
+
+        crop_h = int(round(base_h / z))
+        crop_w = int(round(crop_h * aspect))
+
+        if crop_w > orig_w:
+            crop_w = orig_w
+            crop_h = int(round(crop_w / aspect))
+        if crop_h > orig_h:
+            crop_h = orig_h
+            crop_w = int(round(crop_h * aspect))
+    else:
+        # Legacy auto 50/50 two-shot behavior
+        base_crop_h = int(round(orig_h * max(0.25, min(SPLIT_TIGHTNESS, 1.0))))
+        crop_h = int(round(base_crop_h / z))
+        crop_w = int(round(crop_h * aspect))
+        if crop_w > orig_w:
+            crop_w = orig_w
+            crop_h = int(round(crop_w / aspect))
 
     crop_w -= crop_w % 2
     crop_h -= crop_h % 2
@@ -171,16 +197,20 @@ def split_geometry(orig_w, orig_h, out_w, out_h, centre, part_ratio=0.5, zoom=1.
     x = int(round(cx - crop_w / 2.0))
     x = max(0, min(x, orig_w - crop_w))
 
-    # Faces sit high in a frame, so centring the crop on the face centre buries
-    # the speaker's chin at the bottom edge when the crop is shorter than the
-    # source. Bias the box down a little to keep headroom natural.
-    y = int(round(cy - crop_h * 0.42))
+    if is_manual or abs(part_ratio - 0.5) > 0.04:
+        # Precise center from manual positioning (no face headroom bias)
+        y = int(round(cy - crop_h / 2.0))
+    else:
+        # Faces sit high in a frame, so centring the crop on the face centre buries
+        # the speaker's chin at the bottom edge when the crop is shorter than the
+        # source. Bias the box down a little to keep headroom natural.
+        y = int(round(cy - crop_h * 0.42))
     y = max(0, min(y, orig_h - crop_h))
 
     return crop_w, crop_h, x - (x % 2), y - (y % 2), half_h
 
 
-def split_filtergraph(orig_w, orig_h, out_w, out_h, left_centre, right_centre, top_ratio=None):
+def split_filtergraph(orig_w, orig_h, out_w, out_h, left_centre, right_centre, top_ratio=None, is_manual=False):
     """vstack of two face-framed crops. Left-hand speaker goes on top.
 
     Screen position is the only stable ordering available without diarisation:
@@ -192,10 +222,12 @@ def split_filtergraph(orig_w, orig_h, out_w, out_h, left_centre, right_centre, t
     top_zoom = left_centre[2] if len(left_centre) > 2 else 1.0
     bot_zoom = right_centre[2] if len(right_centre) > 2 else 1.0
 
+    manual = is_manual or (top_ratio is not None and abs(float(top_ratio) - 0.5) > 0.01)
+
     top_w, top_h, top_x, top_y, actual_top_h = split_geometry(
-        orig_w, orig_h, out_w, out_h, left_centre, part_ratio=t_ratio, zoom=top_zoom)
+        orig_w, orig_h, out_w, out_h, left_centre, part_ratio=t_ratio, zoom=top_zoom, is_manual=manual)
     bot_w, bot_h, bot_x, bot_y, actual_bot_h = split_geometry(
-        orig_w, orig_h, out_w, out_h, right_centre, part_ratio=b_ratio, zoom=bot_zoom)
+        orig_w, orig_h, out_w, out_h, right_centre, part_ratio=b_ratio, zoom=bot_zoom, is_manual=manual)
 
     return (
         f"[0:v]split=2[ta][ba];"
@@ -210,7 +242,7 @@ def split_filtergraph(orig_w, orig_h, out_w, out_h, left_centre, right_centre, t
 
 def streamer_split_filtergraph(orig_w, orig_h, out_w, out_h, streamer_centre, game_centre, top_ratio=0.35):
     """35% Streamer on Top, 65% Gameplay on Bottom."""
-    return split_filtergraph(orig_w, orig_h, out_w, out_h, streamer_centre, game_centre, top_ratio=top_ratio)
+    return split_filtergraph(orig_w, orig_h, out_w, out_h, streamer_centre, game_centre, top_ratio=top_ratio, is_manual=True)
 
 
 # One sample per this many seconds of scene, within the bounds below. A fixed

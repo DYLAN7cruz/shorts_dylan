@@ -241,7 +241,7 @@ def apply_crop_overrides(xs, strategies, scene_boundaries, overrides,
                 if isinstance(half, dict):
                     fx = float(half['x'])
                     fy = float(half.get('y', 0.5))
-                    zoom = max(1.0, min(3.0, float(half.get('zoom', 1.0))))
+                    zoom = max(0.5, min(3.0, float(half.get('zoom', 1.0))))
                 else:
                     fx, fy, zoom = float(half), 0.5, 1.0
                 return (fx * orig_w, fy * orig_h, zoom)
@@ -253,7 +253,7 @@ def apply_crop_overrides(xs, strategies, scene_boundaries, overrides,
             if splits is None or not orig_h:
                 continue
             ratio = float(value.get('ratio', 0.35))
-            splits[start_f] = (centres, ratio)
+            splits[start_f] = (centres, ratio, True)
             strategies[idx] = 'SPLIT'
             continue
 
@@ -887,13 +887,19 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
                 bands[start_f] = screencast_layout.content_band(out_h, fg_h)
             elif strategy == 'SPLIT':
                 split_val = splits[start_f]
-                if isinstance(split_val, tuple) and len(split_val) == 2 and isinstance(split_val[1], (float, int)):
-                    (left, right), top_ratio = split_val
+                is_manual = False
+                top_ratio = None
+                if isinstance(split_val, tuple) and len(split_val) >= 2:
+                    if len(split_val) == 3:
+                        (left, right), top_ratio, is_manual = split_val
+                    elif isinstance(split_val[1], (float, int)):
+                        (left, right), top_ratio = split_val
+                    else:
+                        left, right = split_val
                 else:
                     left, right = split_val
-                    top_ratio = None
                 graph = split_layout.split_filtergraph(
-                    orig_w, orig_h, out_w, out_h, left, right, top_ratio=top_ratio)
+                    orig_w, orig_h, out_w, out_h, left, right, top_ratio=top_ratio, is_manual=is_manual)
             elif strategy == 'GENERAL':
                 graph = general_filtergraph(out_w, out_h,
                                             orig_w=orig_w, orig_h=orig_h)

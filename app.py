@@ -7817,7 +7817,7 @@ async def reframe_clip(req: ReframeRequest, request: Request):
                             return {
                                 "x": _fraction(h["x"]),
                                 "y": _fraction(h.get("y", 0.5)),
-                                "zoom": max(1.0, min(3.0, float(h.get("zoom", 1.0)))),
+                                "zoom": max(0.5, min(3.0, float(h.get("zoom", 1.0)))),
                             }
                         return {"x": _fraction(h), "y": 0.5, "zoom": 1.0}
                     overrides[idx] = {

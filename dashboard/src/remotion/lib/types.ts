@@ -61,6 +61,7 @@ export type HookFont = "montserrat" | "anton" | "serif";
 export interface HookConfig {
   text: string;
   position: HookPosition;
+  y_offset?: number;
   size: HookSize;
   style?: HookStyle;
   /** montserrat | anton | serif; unset = the style's own typeface. */

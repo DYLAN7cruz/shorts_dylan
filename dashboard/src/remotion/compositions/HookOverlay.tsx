@@ -124,7 +124,9 @@ const HookBox: React.FC<HookBoxProps> = ({ config, displayFrames }) => {
     });
   }
 
-  const positionStyle = POSITION_STYLE[config.position] ?? POSITION_STYLE.top;
+  const positionStyle = (config.y_offset != null)
+    ? { top: `${Math.round(config.y_offset * 100)}%`, bottom: "auto" }
+    : (POSITION_STYLE[config.position] ?? POSITION_STYLE.top);
   const look = HOOK_LOOKS[config.style ?? "pill"] ?? HOOK_LOOKS.pill;
 
   // Typeface and size as hooks.py: the chosen font, else the style's own;

@@ -8459,6 +8459,7 @@ class HookRequest(BaseModel):
     # auto (off the faces and the captions, hooks/hook_placement), or an
     # explicit top / center / bottom, which is drawn exactly there.
     position: Optional[str] = "auto"
+    y_offset: Optional[float] = None
     size: Optional[str] = "M" # S, M, L
     duration_seconds: Optional[float] = None  # None = hook visible for the whole clip
     style: Optional[str] = "pill"  # pill/classic/dark/yellow/red/outline/outline_yellow
@@ -8542,7 +8543,7 @@ async def add_hook(req: HookRequest, request: Request):
                     input_path, req.text, output_path, position=req.position or "auto",
                     font_scale=font_scale, duration=req.duration_seconds, style=req.style,
                     font=req.font, layout_ranges=clip_data.get('layout_ranges'),
-                    has_captions=had_captions)
+                    has_captions=had_captions, y_offset=req.y_offset)
 
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, run_hook)
@@ -8796,6 +8797,325 @@ async def process_clip_audio(req: AudioProcessRequest, request: Request):
         write_json_atomic(json_files[0], data, indent=4)
 
     return {"success": True, "new_video_url": new_url, "preset": preset, "restored": is_revert}
+
+
+class FacecamMaskRequest(BaseModel):
+    job_id: str
+    clip_index: int
+    corner: Optional[str] = "bottom_right" # bottom_right, bottom_left, top_right, top_left, custom
+    style: Optional[str] = "blur" # blur, black, pixelate
+    x_pct: Optional[float] = None
+    y_pct: Optional[float] = None
+    width_pct: Optional[float] = 0.28
+    height_pct: Optional[float] = 0.24
+    input_filename: Optional[str] = None
+
+@app.post("/api/clip/mask-facecam")
+async def mask_facecam(req: FacecamMaskRequest, request: Request):
+    await require_managed_entitlement(request)
+    await _ensure_job_files(req.job_id, request)
+    if req.job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = jobs[req.job_id]
+    await _assert_job_owner(request, job)
+    output_dir = os.path.join(OUTPUT_DIR, req.job_id)
+    json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+
+    with open(json_files[0], 'r') as f:
+        data = json.load(f)
+
+    clips = data.get('shorts', [])
+    if req.clip_index < 0 or req.clip_index >= len(clips):
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    clip = clips[req.clip_index]
+    if req.input_filename:
+        filename = os.path.basename(req.input_filename)
+    else:
+        filename = clip.get('video_url', '').split('/')[-1]
+        if not filename:
+            base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
+            filename = f"{base_name}_clip_{req.clip_index + 1}.mp4"
+
+    input_path = os.path.join(output_dir, filename)
+    if not os.path.exists(input_path):
+        raise HTTPException(status_code=404, detail=f"Video file not found: {input_path}")
+
+    vw, vh = 1080, 1920
+    try:
+        probe_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', input_path]
+        res = subprocess.check_output(probe_cmd, timeout=30).decode().strip()
+        dims = res.split('\n')[0].split('x')
+        vw, vh = int(dims[0]), int(dims[1])
+    except Exception as e:
+        print(f"⚠️ ffprobe fallback to {vw}x{vh}: {e}")
+
+    w_pct = max(0.05, min(0.9, float(req.width_pct or 0.28)))
+    h_pct = max(0.05, min(0.9, float(req.height_pct or 0.24)))
+    box_w = int(round(vw * w_pct))
+    box_h = int(round(vh * h_pct))
+    box_w -= box_w % 2
+    box_h -= box_h % 2
+
+    corner = (req.corner or "bottom_right").lower()
+    margin_x = int(vw * 0.02)
+    margin_y = int(vh * 0.02)
+
+    if corner == "bottom_right":
+        box_x = vw - box_w - margin_x
+        box_y = vh - box_h - margin_y
+    elif corner == "bottom_left":
+        box_x = margin_x
+        box_y = vh - box_h - margin_y
+    elif corner == "top_right":
+        box_x = vw - box_w - margin_x
+        box_y = margin_y
+    elif corner == "top_left":
+        box_x = margin_x
+        box_y = margin_y
+    else:
+        box_x = int(round(vw * float(req.x_pct if req.x_pct is not None else 0.70)))
+        box_y = int(round(vh * float(req.y_pct if req.y_pct is not None else 0.70)))
+
+    box_x = max(0, min(box_x, vw - box_w))
+    box_y = max(0, min(box_y, vh - box_h))
+    box_x -= box_x % 2
+    box_y -= box_y % 2
+
+    style = (req.style or "blur").lower()
+    if style == "black":
+        vf = f"drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:color=black@1.0:t=fill"
+    elif style == "pixelate":
+        vf = (f"[0:v]crop=w={box_w}:h={box_h}:x={box_x}:y={box_y},"
+              f"scale=iw/16:ih/16:flags=neighbor,scale={box_w}:{box_h}:flags=neighbor[pix];"
+              f"[0:v][pix]overlay=x={box_x}:y={box_y}")
+    else: # blur
+        vf = (f"[0:v]crop=w={box_w}:h={box_h}:x={box_x}:y={box_y},"
+              f"avgblur=sizeX=32:sizeY=32[blurred];"
+              f"[0:v][blurred]overlay=x={box_x}:y={box_y}")
+
+    out_name = f"masked_{int(time.time())}_{uuid.uuid4().hex[:6]}_{filename}"
+    out_path = os.path.join(output_dir, out_name)
+
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-filter_complex" if "[0:v]" in vf else "-vf", vf,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        "-c:a", "copy",
+        out_path
+    ]
+
+    def run_ffmpeg():
+        subprocess.check_call(cmd, timeout=300)
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_ffmpeg)
+
+    delivered_name = await _deliver(request, req.job_id, out_name)
+    new_video_url = f"/videos/{req.job_id}/{delivered_name}"
+    clip['video_url'] = new_video_url
+    clip['facecam_masked'] = {
+        'corner': corner,
+        'style': style,
+        'box': [box_x, box_y, box_w, box_h]
+    }
+    data['shorts'] = clips
+    write_json_atomic(json_files[0], data, indent=2)
+    mem_clips = (job.get('result') or {}).get('clips') or []
+    if req.clip_index < len(mem_clips):
+        mem_clips[req.clip_index]['video_url'] = new_video_url
+
+    return {
+        "success": True,
+        "new_video_url": new_video_url,
+        "filename": delivered_name,
+        "mask": clip['facecam_masked']
+    }
+
+
+class StreamerSplitRequest(BaseModel):
+    job_id: str
+    clip_index: int
+    top_ratio: Optional[float] = 0.35
+    streamer_x: Optional[float] = None
+    streamer_y: Optional[float] = None
+    game_x: Optional[float] = 0.50
+    game_y: Optional[float] = 0.50
+    input_filename: Optional[str] = None
+
+@app.post("/api/clip/streamer-split")
+async def streamer_split_clip(req: StreamerSplitRequest, request: Request):
+    await require_managed_entitlement(request)
+    await _ensure_job_files(req.job_id, request)
+    if req.job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = jobs[req.job_id]
+    await _assert_job_owner(request, job)
+    output_dir = os.path.join(OUTPUT_DIR, req.job_id)
+    json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+
+    with open(json_files[0], 'r') as f:
+        data = json.load(f)
+
+    clips = data.get('shorts', [])
+    if req.clip_index < 0 or req.clip_index >= len(clips):
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    clip = clips[req.clip_index]
+    segments, canonical_range = _clip_recipe_parts(clip)
+    source_path = await _locate_or_fetch_source(req.job_id)
+
+    base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
+    clean_name = f"{base_name}_clip_{req.clip_index + 1}.mp4"
+
+    top_ratio = max(0.25, min(0.45, float(req.top_ratio or 0.35)))
+    out_w, out_h = 1080, 1920
+
+    top_h = int(round(out_h * top_ratio))
+    top_h -= top_h % 2
+    bot_h = out_h - top_h
+    bot_h -= bot_h % 2
+
+    temp_cut = os.path.join(output_dir, f"temp_split_{int(time.time())}_{uuid.uuid4().hex[:6]}.mp4")
+    out_name = f"split35_{int(time.time())}_{uuid.uuid4().hex[:6]}_{clean_name}"
+    out_path = os.path.join(output_dir, out_name)
+
+    try:
+        if source_path and os.path.exists(source_path):
+            recut.run_cut_concat(source_path, segments, temp_cut, output_dir)
+            target_input = temp_cut
+        else:
+            curr_file = clip.get('video_url', '').split('/')[-1] or clean_name
+            target_input = os.path.join(output_dir, curr_file)
+
+        vw, vh = 1920, 1080
+        try:
+            probe_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', target_input]
+            res = subprocess.check_output(probe_cmd, timeout=30).decode().strip()
+            dims = res.split('\n')[0].split('x')
+            vw, vh = int(dims[0]), int(dims[1])
+        except Exception as e:
+            print(f"⚠️ probe target_input failed: {e}")
+
+        streamer_x = float(req.streamer_x if req.streamer_x is not None else 0.85)
+        streamer_y = float(req.streamer_y if req.streamer_y is not None else 0.80)
+
+        if req.streamer_x is None:
+            try:
+                import camera_inset
+                detected_box = camera_inset.detect(target_input, samples=6)
+                if detected_box:
+                    streamer_x = (detected_box[0] + detected_box[2] / 2.0) / vw
+                    streamer_y = (detected_box[1] + detected_box[3] / 2.0) / vh
+            except Exception as e:
+                print(f"⚠️ Camera inset detection skipped: {e}")
+
+        game_x = float(req.game_x if req.game_x is not None else 0.50)
+        game_y = float(req.game_y if req.game_y is not None else 0.50)
+
+        top_aspect = out_w / float(top_h)
+        cam_crop_h = int(round(vh * 0.40))
+        cam_crop_w = int(round(cam_crop_h * top_aspect))
+        if cam_crop_w > vw:
+            cam_crop_w = vw
+            cam_crop_h = int(round(cam_crop_w / top_aspect))
+        cam_crop_w -= cam_crop_w % 2
+        cam_crop_h -= cam_crop_h % 2
+
+        cam_cx = int(round(streamer_x * vw))
+        cam_cy = int(round(streamer_y * vh))
+        cam_x = max(0, min(cam_cx - cam_crop_w // 2, vw - cam_crop_w))
+        cam_y = max(0, min(cam_cy - cam_crop_h // 2, vh - cam_crop_h))
+        cam_x -= cam_x % 2
+        cam_y -= cam_y % 2
+
+        bot_aspect = out_w / float(bot_h)
+        game_crop_h = vh
+        game_crop_w = int(round(game_crop_h * bot_aspect))
+        if game_crop_w > vw:
+            game_crop_w = vw
+            game_crop_h = int(round(game_crop_w / bot_aspect))
+        game_crop_w -= game_crop_w % 2
+        game_crop_h -= game_crop_h % 2
+
+        game_cx = int(round(game_x * vw))
+        game_cy = int(round(game_y * vh))
+        game_x_px = max(0, min(game_cx - game_crop_w // 2, vw - game_crop_w))
+        game_y_px = max(0, min(game_cy - game_crop_h // 2, vh - game_crop_h))
+        game_x_px -= game_x_px % 2
+        game_y_px -= game_y_px % 2
+
+        filter_graph = (
+            f"[0:v]split=2[cam_in][game_in];"
+            f"[cam_in]crop=w={cam_crop_w}:h={cam_crop_h}:x={cam_x}:y={cam_y},"
+            f"scale={out_w}:{top_h}[top_cam];"
+            f"[game_in]crop=w={game_crop_w}:h={game_crop_h}:x={game_x_px}:y={game_y_px},"
+            f"scale={out_w}:{bot_h}[bot_game];"
+            f"[top_cam][bot_game]vstack=inputs=2,pad={out_w}:{out_h}:0:0,setsar=1[v]"
+        )
+
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", "-i", target_input,
+            "-filter_complex", filter_graph,
+            "-map", "[v]", "-map", "0:a?",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+            "-c:a", "copy",
+            out_path
+        ]
+
+        def run_split():
+            subprocess.check_call(ffmpeg_cmd, timeout=300)
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, run_split)
+
+        hook_text = clip.get('viral_hook_text') or (clip.get('auto_hook') or {}).get('text')
+        if hook_text:
+            hooked_path = os.path.join(output_dir, f"hooked_{int(time.time())}_{out_name}")
+            try:
+                from hooks import add_hook_to_video
+                add_hook_to_video(
+                    out_path, hook_text, hooked_path,
+                    position="top", y_offset=0.08, duration=5.0
+                )
+                if os.path.exists(hooked_path):
+                    out_path = hooked_path
+                    out_name = os.path.basename(hooked_path)
+            except Exception as he:
+                print(f"⚠️ Re-applying hook on streamer split failed: {he}")
+
+        delivered_name = await _deliver(request, req.job_id, out_name)
+        new_video_url = f"/videos/{req.job_id}/{delivered_name}"
+        clip['video_url'] = new_video_url
+        clip['streamer_split'] = {
+            'top_ratio': top_ratio,
+            'streamer_crop': {'x': streamer_x, 'y': streamer_y},
+            'game_crop': {'x': game_x, 'y': game_y}
+        }
+        data['shorts'] = clips
+        write_json_atomic(json_files[0], data, indent=2)
+        mem_clips = (job.get('result') or {}).get('clips') or []
+        if req.clip_index < len(mem_clips):
+            mem_clips[req.clip_index]['video_url'] = new_video_url
+
+        return {
+            "success": True,
+            "new_video_url": new_video_url,
+            "filename": delivered_name,
+            "top_ratio": top_ratio
+        }
+    finally:
+        if os.path.exists(temp_cut):
+            try:
+                os.remove(temp_cut)
+            except Exception:
+                pass
 
 class WatermarkCustomRequest(BaseModel):
     job_id: str

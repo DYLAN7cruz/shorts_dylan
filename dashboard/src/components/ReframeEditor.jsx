@@ -413,8 +413,8 @@ function SceneRow({ scene, value, widthFraction, previewUrl, touched, playing,
                                 width: `${widthFraction * 100}%`
                             }}
                         >
-                            <span className="absolute top-1 left-1 text-[9px] px-1 rounded bg-brass text-black font-bold">
-                                ARRIBA
+                            <span className="absolute top-1 left-1 text-[9px] px-1.5 py-0.5 rounded bg-brass text-black font-bold">
+                                STREAMER (35%)
                             </span>
                         </div>
                         <div
@@ -426,8 +426,8 @@ function SceneRow({ scene, value, widthFraction, previewUrl, touched, playing,
                                 width: `${widthFraction * 100}%`
                             }}
                         >
-                            <span className="absolute top-1 left-1 text-[9px] px-1 rounded bg-cyan-400 text-black font-bold">
-                                ABAJO
+                            <span className="absolute top-1 left-1 text-[9px] px-1.5 py-0.5 rounded bg-cyan-400 text-black font-bold">
+                                JUEGO (65%)
                             </span>
                         </div>
                     </>

@@ -64,6 +64,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
     // Stored as `pos`, not `position`: before 'auto' existed every save wrote
     // 'top' whether or not the user ever touched the control.
     const [position, setPosition] = useState(prefs.pos || 'auto');
+    const [yOffset, setYOffset] = useState(prefs.y_offset ?? (prefs.pos === 'center' ? 0.50 : prefs.pos === 'bottom' ? 0.70 : 0.18));
     const [size, setSize] = useState(prefs.size || 'M');
     const [style, setStyle] = useState(prefs.style || 'pill');
     // null = follow the style's own typeface.
@@ -92,12 +93,20 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
         }
     };
 
+    const handleRestoreOriginal = () => {
+        if (initialText) setText(initialText);
+        setPosition('top');
+        setYOffset(0.18);
+        setDisplayDuration(5);
+    };
+
     if (!isOpen) return null;
 
     // Build hook config for Remotion preview
     const hookConfig = {
         text: text || 'Enter your text...',
         position,
+        y_offset: yOffset,
         size,
         style,
         font: effectiveFont,
@@ -245,23 +254,74 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
 
                         {/* Position Control */}
                         <div>
-                            <p className="eyebrow mb-2">Position</p>
+                            <div className="flex items-center justify-between mb-2">
+                                <p className="eyebrow">Posición y Altura</p>
+                                <span className="readout text-[11px] text-brass">{Math.round(yOffset * 100)}% altura</span>
+                            </div>
                             <SegmentedControl
                                 options={POSITION_OPTIONS}
                                 value={position}
-                                onChange={setPosition}
+                                onChange={(p) => {
+                                    setPosition(p);
+                                    if (p === 'top') setYOffset(0.18);
+                                    else if (p === 'center') setYOffset(0.50);
+                                    else if (p === 'bottom') setYOffset(0.70);
+                                }}
                                 size="sm"
                             />
+                            {/* Vertical fine slider */}
+                            <div className="mt-3 p-2.5 rounded-input bg-paper3/40 border border-rule/50 space-y-1.5">
+                                <div className="flex justify-between text-[11px] text-muted">
+                                    <span>Mover arriba / abajo:</span>
+                                    <span className="font-medium text-ink">{Math.round(yOffset * 100)}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0.08"
+                                    max="0.85"
+                                    step="0.01"
+                                    value={yOffset}
+                                    onChange={(e) => {
+                                        const v = parseFloat(e.target.value);
+                                        setYOffset(v);
+                                        if (v < 0.35) setPosition('top');
+                                        else if (v > 0.65) setPosition('bottom');
+                                        else setPosition('center');
+                                    }}
+                                    className="w-full accent-[var(--color-accent)]"
+                                />
+                                <div className="flex justify-between text-[10px] text-muted">
+                                    <button
+                                        type="button"
+                                        onClick={() => { setPosition('top'); setYOffset(0.18); }}
+                                        className="hover:text-brass transition-colors"
+                                    >
+                                        Arriba (18%)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setPosition('center'); setYOffset(0.50); }}
+                                        className="hover:text-brass transition-colors"
+                                    >
+                                        Centro (50%)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setPosition('bottom'); setYOffset(0.70); }}
+                                        className="hover:text-brass transition-colors"
+                                    >
+                                        Abajo (70%)
+                                    </button>
+                                </div>
+                            </div>
                             {position === 'auto' && (
                                 <p className="text-[11px] text-muted mt-1.5 leading-relaxed">
-                                    Placed where it covers no face and no captions.
-                                    The preview shows it at the top.
+                                    Colocado automáticamente donde no tape caras ni subtítulos.
                                 </p>
                             )}
                             {position === 'bottom' && hasCaptions && (
                                 <p className="text-[11px] text-warn mt-1.5 leading-relaxed">
-                                    This clip has captions near the bottom — the hook may
-                                    overlap them (and TikTok's UI). Top is the safe zone.
+                                    Este clip tiene subtítulos abajo. Recomendamos poner el gancho en la zona superior.
                                 </p>
                             )}
                         </div>
@@ -329,8 +389,15 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                             </div>
                         )}
 
-                        <div className="p-3 border border-rule rounded-input text-xs text-muted">
-                            Tip: keep it short and punchy. Using "POV:" or specific questions works best for retention.
+                        <div className="p-3 border border-rule rounded-input text-xs text-muted flex items-center justify-between gap-2">
+                            <span>¿Se te borró el gancho o quieres volver al texto inicial?</span>
+                            <button
+                                type="button"
+                                onClick={handleRestoreOriginal}
+                                className="text-brass hover:underline whitespace-nowrap font-medium text-[11px]"
+                            >
+                                Restaurar original ✨
+                            </button>
                         </div>
                     </div>
 
@@ -342,11 +409,11 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                             onClick={() => {
                                 try {
                                     localStorage.setItem('os_hook_prefs', JSON.stringify({
-                                        style, font, pos: position, size, entranceAnimation,
+                                        style, font, pos: position, size, entranceAnimation, y_offset: yOffset,
                                     }));
                                 } catch { /* ignore */ }
                                 onGenerate({
-                                    text, position, size, style, font: effectiveFont,
+                                    text, position, y_offset: yOffset, size, style, font: effectiveFont,
                                     duration_seconds: displayDuration,
                                     // Remotion data
                                     remotion: hookConfig,
@@ -356,7 +423,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                             className="btn-primary flex-1"
                         >
                             {isProcessing && <Loader2 size={16} className="animate-spin text-brassink" />}
-                            {isProcessing ? 'saving...' : (burnedHook ? 'update hook' : 'add hook')}
+                            {isProcessing ? 'guardando...' : (burnedHook ? 'actualizar gancho' : 'aplicar gancho (5s)')}
                         </button>
                     </div>
                 </div>

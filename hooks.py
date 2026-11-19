@@ -482,30 +482,18 @@ def _auto_place(video_path, text, target_box_width, hook_filename, font_scale, s
             "y": round(y, 3), "scale": rel}
 
 
-def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0, duration=None, style="pill",
+def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0, duration=5.0, style="pill",
                       also=None, font=None, layout_ranges=None, has_captions=True,
-                      mark=None):
+                      mark=None, y_offset=None):
     """
     Overlays text hook onto video.
-    position: 'top', 'center', 'bottom', or 'auto' (hook_placement: off the
-      faces in the hook's window and off the caption bands; what the job
-      pipeline and an editor left on "auto" use). An explicit top/center/
-      bottom is drawn exactly where it always was.
-    layout_ranges / has_captions: only read by 'auto', to know where the
-      captions sit (seam on SPLIT stretches, bottom elsewhere). None reads
-      the clip's own ``.layout.json`` sidecar.
+    position: 'top', 'center', 'bottom', 'auto', or numeric string e.g. '0.18'.
+    y_offset: optional float 0.05-0.90 for fine-grained vertical positioning.
+    duration: float duration in seconds (default 5.0 for the opening hook).
     font_scale: float multiplier (1.0 = default)
     style: hook look (see HOOK_STYLES)
-    also: optional (vf, path): ALSO write ``path`` = the hooked picture with
-      ``vf`` applied (the captions), from the same decode. The editor
-      re-captions from the hooked-only picture, but most clips are never
-      re-captioned, so with ``also`` that file is not encoded: a recipe
-      (overlay image + position) is kept instead and ``materialize`` encodes
-      it the first time it is asked for (``HOOK_LAZY=0``: encode it here).
-    mark: optional (logo_path, make_filter, path), only with ``also``: ALSO
-      write ``path`` = the captioned picture with the free-plan mark, from the
-      same decode (the served ``wm_`` copy, see main.mark_delivery).
-      ``make_filter(vw, vh, video=, logo=, out=)`` is main.watermark_filter.
+    also: optional (vf, path)
+    mark: optional (logo_path, make_filter, path)
     """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video {video_path} not found")
@@ -554,7 +542,9 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
         # 3. Calculate Overlay Position
         overlay_x = (video_width - box_w) // 2
         
-        if placed:
+        if y_offset is not None:
+            overlay_y = int(round(video_height * max(0.04, min(0.92, float(y_offset)))))
+        elif placed:
             overlay_y = placed["y_px"]
         elif position == "center":
             overlay_y = (video_height - box_h) // 2
@@ -562,8 +552,13 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
              # Bottom 20% mark (approx)
              overlay_y = int(video_height * 0.70)
         else:
-             # Top 20% mark
-             overlay_y = int(video_height * 0.20)
+             # Check if position is a float/percentage string e.g. "0.18"
+             try:
+                 pos_f = float(position)
+                 overlay_y = int(round(video_height * max(0.04, min(0.92, pos_f))))
+             except (ValueError, TypeError):
+                 # Top 20% mark
+                 overlay_y = int(video_height * 0.20)
         
         # 4. FFmpeg Command
         print(f"🎬 Overlaying hook: '{text}' at {overlay_x},{overlay_y}")

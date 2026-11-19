@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, Share2, AlertCircle, Loader2, Copy, Check, Wand2, Type, Calendar, Languages, FileText, Link2, Scissors, Crosshair, TrendingUp, Sparkles, Volume2, Tag, Bot } from 'lucide-react';
+import { Download, Share2, AlertCircle, Loader2, Copy, Check, Wand2, Type, Calendar, Languages, FileText, Link2, Scissors, Crosshair, TrendingUp, Sparkles, Volume2, Tag, Bot, EyeOff, Gamepad2 } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch } from '../lib/api';
 import { platformOptions as buildPlatformOptions, defaultPlatformFlags, flagsFromList } from '../lib/socialPlatforms';
@@ -10,6 +10,8 @@ import TranslateModal from './TranslateModal';
 import AudioModal from './AudioModal';
 import BrandWatermarkModal from './BrandWatermarkModal';
 import VoiceoverModal from './VoiceoverModal';
+import FacecamMaskModal from './FacecamMaskModal';
+import StreamerSplitModal from './StreamerSplitModal';
 import Modal from './ui/Modal';
 import SegmentedControl from './ui/SegmentedControl';
 import WatermarkModal, { watermarkNoticeDismissed } from './WatermarkModal';
@@ -352,7 +354,23 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     // Accumulate Remotion layers across operations. A reopened project restores
     // the layers persisted in its project state, so the next edit composes over
     // them instead of silently dropping previous browser-side work.
-    const [activeLayers, setActiveLayers] = useState(initialState?.active_layers || { subtitles: null, hook: null, effects: null });
+    const initialHook = initialState?.active_layers?.hook || (clip.auto_hook?.text || clip.viral_hook_text ? {
+        text: clip.auto_hook?.text || clip.viral_hook_text,
+        position: clip.auto_hook?.position || 'top',
+        y_offset: clip.auto_hook?.y ?? 0.18,
+        size: clip.auto_hook?.size || 'M',
+        style: clip.auto_hook?.style || 'pill',
+        entranceAnimation: 'spring',
+        displayDurationSec: clip.auto_hook?.duration_seconds || 5,
+    } : null);
+
+    const [activeLayers, setActiveLayers] = useState(initialState?.active_layers || {
+        subtitles: null,
+        hook: initialHook,
+        effects: null,
+    });
+    const [showMaskModal, setShowMaskModal] = useState(false);
+    const [showStreamerSplitModal, setShowStreamerSplitModal] = useState(false);
 
     // Report edit state upward (debounced sync to the project record). Skip the
     // mount run: only user-driven changes are worth persisting.
@@ -604,7 +622,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 // Subtitles are burned into the server file now — drop the
                 // browser subtitle layer and re-compose any remaining browser
                 // layers (hook/effects) over the new file so they aren't lost.
-                const remaining = { ...activeLayers, subtitles: null };
+                const remaining = { ...activeLayers, subtitles: null, hook: activeLayers.hook || initialHook };
                 setActiveLayers(remaining);
                 if (remaining.hook || remaining.effects) {
                     const blobUrl = await renderInBrowser({
@@ -718,6 +736,18 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
         } finally {
             setIsHooking(false);
         }
+    };
+
+    const handleRestoreHook = async () => {
+        const textToRestore = clip.auto_hook?.text || clip.viral_hook_text || burnedHook || '¡Mira lo que pasa aquí!';
+        await handleHook({
+            text: textToRestore,
+            position: 'top',
+            y_offset: 0.18,
+            size: 'M',
+            style: 'pill',
+            duration_seconds: 5.0,
+        });
     };
 
     const handleTranslate = async (options) => {
@@ -1219,6 +1249,38 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     </button>
 
                     <button
+                        onClick={() => setShowMaskModal(true)}
+                        className={QUIET_BTN}
+                        title="Ocultar o desenfocar la facecam del streamer conservando el 100% de su voz"
+                    >
+                        <EyeOff size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
+                        ocultar facecam
+                    </button>
+
+                    <button
+                        onClick={() => setShowStreamerSplitModal(true)}
+                        className={QUIET_BTN}
+                        title="Dividir pantalla: 35% arriba streamer / 65% abajo juego"
+                    >
+                        <Gamepad2 size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
+                        streamer split
+                    </button>
+
+                    <button
+                        onClick={handleRestoreHook}
+                        disabled={isHooking}
+                        className={QUIET_BTN}
+                        title="Restaurar y fijar el título gancho de los primeros 5 segundos"
+                    >
+                        {isHooking ? (
+                            <Loader2 size={16} className="animate-spin text-brass shrink-0" />
+                        ) : (
+                            <Sparkles size={16} className="text-brass group-hover:text-brass transition-colors shrink-0" />
+                        )}
+                        {isHooking ? 'reponiendo…' : 'restaurar gancho'}
+                    </button>
+
+                    <button
                         onClick={() => setShowModal(true)}
                         className="btn-primary flex-col gap-1 py-2.5 sm:py-2 px-1 text-[11px] leading-none rounded-input whitespace-nowrap"
                     >
@@ -1487,6 +1549,38 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 clipIndex={index}
                 currentVideoUrl={currentVideoUrl}
                 onWatermarkApplied={handleBrandWatermarkApplied}
+            />
+
+            <FacecamMaskModal
+                isOpen={showMaskModal}
+                onClose={() => setShowMaskModal(false)}
+                jobId={jobId}
+                clipIndex={index}
+                videoUrl={currentVideoUrl || originalVideoUrl}
+                inputFilename={serverVideoFile}
+                onMaskApplied={(data) => {
+                    if (data?.new_video_url) {
+                        setCurrentVideoUrl(getApiUrl(data.new_video_url));
+                        if (data.filename) setServerVideoFile(data.filename);
+                        if (videoRef.current) videoRef.current.load();
+                    }
+                }}
+            />
+
+            <StreamerSplitModal
+                isOpen={showStreamerSplitModal}
+                onClose={() => setShowStreamerSplitModal(false)}
+                jobId={jobId}
+                clipIndex={index}
+                videoUrl={currentVideoUrl || originalVideoUrl}
+                inputFilename={serverVideoFile}
+                onSplitApplied={(data) => {
+                    if (data?.new_video_url) {
+                        setCurrentVideoUrl(getApiUrl(data.new_video_url));
+                        if (data.filename) setServerVideoFile(data.filename);
+                        if (videoRef.current) videoRef.current.load();
+                    }
+                }}
             />
 
         </div>

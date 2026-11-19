@@ -145,13 +145,13 @@ def analyze_scene(frames, frame_w):
     return left, right
 
 
-def split_geometry(orig_w, orig_h, out_w, out_h, centre):
-    """Crop box (w, h, x, y) framing ``centre`` for one half of the stack.
+def split_geometry(orig_w, orig_h, out_w, out_h, centre, part_ratio=0.5):
+    """Crop box (w, h, x, y) framing ``centre`` for one part of the stack.
 
-    Each half is out_w x out_h/2, so the crop is much wider than the 9:16 one
-    TRACK uses; on a 16:9 source it is the full height and ~63% of the width.
+    When part_ratio is 0.5, each half is out_w x out_h/2.
+    For streamer splits, top is typically 0.35 (35%) and bottom is 0.65 (65%).
     """
-    half_h = out_h // 2
+    half_h = int(round(out_h * part_ratio))
     half_h -= half_h % 2
     aspect = out_w / float(half_h)
 
@@ -177,30 +177,34 @@ def split_geometry(orig_w, orig_h, out_w, out_h, centre):
     return crop_w, crop_h, x - (x % 2), y - (y % 2), half_h
 
 
-def split_filtergraph(orig_w, orig_h, out_w, out_h, left_centre, right_centre):
+def split_filtergraph(orig_w, orig_h, out_w, out_h, left_centre, right_centre, top_ratio=None):
     """vstack of two face-framed crops. Left-hand speaker goes on top.
 
     Screen position is the only stable ordering available without diarisation:
     keying off who speaks first would swap the two halves between scenes of the
     same conversation, which reads as an edit mistake.
     """
-    top_w, top_h, top_x, top_y, half_h = split_geometry(
-        orig_w, orig_h, out_w, out_h, left_centre)
-    bot_w, bot_h, bot_x, bot_y, _ = split_geometry(
-        orig_w, orig_h, out_w, out_h, right_centre)
+    t_ratio = 0.5 if top_ratio is None else float(top_ratio)
+    b_ratio = 1.0 - t_ratio
+    top_w, top_h, top_x, top_y, actual_top_h = split_geometry(
+        orig_w, orig_h, out_w, out_h, left_centre, part_ratio=t_ratio)
+    bot_w, bot_h, bot_x, bot_y, actual_bot_h = split_geometry(
+        orig_w, orig_h, out_w, out_h, right_centre, part_ratio=b_ratio)
 
     return (
         f"[0:v]split=2[ta][ba];"
         f"[ta]crop=w={top_w}:h={top_h}:x={top_x}:y={top_y},"
-        f"scale={out_w}:{half_h}[top];"
+        f"scale={out_w}:{actual_top_h}[top];"
         f"[ba]crop=w={bot_w}:h={bot_h}:x={bot_x}:y={bot_y},"
-        f"scale={out_w}:{half_h}[bot];"
+        f"scale={out_w}:{actual_bot_h}[bot];"
         f"[top][bot]vstack=inputs=2,"
-        # vstack of two half_h halves can be 2px short of out_h after the
-        # even-rounding above; pad rather than scale so neither half is
-        # resampled a second time.
         f"pad={out_w}:{out_h}:0:0,setsar=1[v]"
     )
+
+
+def streamer_split_filtergraph(orig_w, orig_h, out_w, out_h, streamer_centre, game_centre, top_ratio=0.35):
+    """35% Streamer on Top, 65% Gameplay on Bottom."""
+    return split_filtergraph(orig_w, orig_h, out_w, out_h, streamer_centre, game_centre, top_ratio=top_ratio)
 
 
 # One sample per this many seconds of scene, within the bounds below. A fixed

@@ -82,10 +82,10 @@ OUTPUT — RETURN ONLY VALID JSON (no markdown, no comments). Order clips by pre
     {{
       "start": <number in seconds, e.g., 12.340>,
       "end": <number in seconds, e.g., 37.900>,
-      "video_description_for_tiktok": "<description for TikTok oriented to get views>",
-      "video_description_for_instagram": "<description for Instagram oriented to get views>",
-      "video_title_for_youtube_short": "<title for YouTube Short oriented to get views 100 chars max>",
-      "viral_hook_text": "<SHORT punchy text overlay (max 10 words) with 1-2 fitting emojis. MUST BE IN THE SAME LANGUAGE AS THE VIDEO TRANSCRIPT. Examples: 'POV: You realized... 😳', 'Did you know? 🤯', 'Stop doing this! 🚫'>"
+      "video_description_for_tiktok": "<description for TikTok in Spanish with hashtags>",
+      "video_description_for_instagram": "<description for Instagram in Spanish with hashtags>",
+      "video_title_for_youtube_short": "<title for YouTube Short in Spanish with emojis 100 chars max>",
+      "viral_hook_text": "<SHORT punchy text overlay in Spanish (max 10 words) with 1-2 fitting emojis. MUST ALWAYS BE IN SPANISH (Español). Examples: 'POV: Cuando te das cuenta... 😳', '¿Sabías esto? 🤯', '¡No hagas esto nunca! 🚫'>"
     }}
   ]
 }}

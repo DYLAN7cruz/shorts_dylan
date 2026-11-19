@@ -46,7 +46,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
     // Advanced generation controls — empty string means "let the AI decide",
     // which keeps the default pipeline behavior untouched.
     const [showAdvanced, setShowAdvanced] = useState(false);
-    const [targetClips, setTargetClips] = useState('');
+    const [targetClips, setTargetClips] = useState('7');
     const [clipMinSeconds, setClipMinSeconds] = useState('');
     const [clipMaxSeconds, setClipMaxSeconds] = useState('');
     // Auto-hook: burn the AI hook text into every clip. On by default; the
@@ -297,6 +297,32 @@ export default function MediaInput({ onProcess, isProcessing }) {
                                     />
                                     <span className="block font-mono text-sm leading-none">{f.label}</span>
                                     <span className="block text-[11px] sm:text-[10px] leading-tight text-center text-muted">{f.hint}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Target clips selector */}
+                <div className="mt-4">
+                    <p className="eyebrow mb-2">Cantidad de clips a generar</p>
+                    <div className="grid grid-cols-3 gap-2">
+                        {[
+                            { value: '4', label: '4 clips', hint: 'Solo los más top' },
+                            { value: '7', label: '6 a 8 clips', hint: 'Recomendado' },
+                            { value: '12', label: '10 a 12 clips', hint: 'Aprovechar todo el video' },
+                        ].map((c) => {
+                            const active = (targetClips || '7') === c.value;
+                            return (
+                                <button
+                                    key={c.value}
+                                    type="button"
+                                    onClick={() => setTargetClips(c.value)}
+                                    className={`py-2 px-2 rounded-input border flex flex-col items-center gap-0.5 transition-all
+                                        ${active ? 'border-brass bg-brass/10 text-ink' : 'border-rule2 text-muted hover:border-brass'}`}
+                                >
+                                    <span className="font-semibold text-xs text-ink">{c.label}</span>
+                                    <span className="text-[10px] text-muted text-center leading-tight">{c.hint}</span>
                                 </button>
                             );
                         })}

@@ -48,10 +48,10 @@ def clip_count_targets(n_windows):
     import os
 
     n = max(1, int(n_windows or 1))
-    # Floor grows with the material: 3 windows -> 3, 5 -> 4, 10+ -> 6.
-    low = max(2, min(6, n // 2 + 2))
+    # Floor grows with the material: 3 windows -> 4, 5 -> 6, 8+ -> 8.
+    low = max(4, min(10, n // 2 + 3))
     # Ceiling allows a rich window to yield more than one without inviting padding.
-    high = min(12, max(4, n * 2))
+    high = min(15, max(6, n * 2))
     low = min(low, high)
 
     def _override(name, current):
@@ -79,7 +79,7 @@ def shortlist_target(video_duration):
         seconds = float(video_duration or 0)
     except (TypeError, ValueError):
         seconds = 0.0
-    return max(3, min(10, int(seconds // 90) + 2))
+    return max(5, min(15, int(seconds // 60) + 3))
 
 
 def score_batches(windows, batch_size):
@@ -226,7 +226,7 @@ def compact_words(words, precision=2):
 
 
 def build_transcript_windows(transcript_result, video_duration,
-                             window_seconds=90, overlap_seconds=30):
+                             window_seconds=60, overlap_seconds=20):
     """
     Build scoring windows aligned to Whisper segment boundaries, so a sentence
     (and usually a viral moment) is never cut in half mid-window. Windows grow
@@ -283,7 +283,7 @@ def build_transcript_windows(transcript_result, video_duration,
     return windows
 
 
-def dedupe_overlapping(shorts, ratio=0.25):
+def dedupe_overlapping(shorts, ratio=0.40):
     """Drop clips that overlap an already-kept clip by ``ratio`` of the
     shorter one, keeping the higher ``predicted_score`` (earlier on a tie).
 

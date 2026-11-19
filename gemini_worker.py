@@ -315,40 +315,30 @@ CLIP RULES:
   A brilliant moment that needs the previous five minutes is not a clip.
   Fix this by moving the START earlier, never by cutting the ending short: a
   clip that loses its payoff to gain context has traded down.
-- HOW MANY: return {min_clips} to {max_clips} clips. Work through EVERY candidate
-  window — they were already scored as the best moments in the video, so a window
-  that yields nothing should be the exception, not the norm. Two or three clips
-  from one window are fine when they are genuinely different moments. The rules
-  above let you skip a weak clip; they are not a licence to return one clip and
-  stop. Only fall short of {min_clips} when the material truly does not hold
-  them, and never pad with a clip you would not publish yourself.
+- HOW MANY: return AT LEAST {min_clips} to {max_clips} clips. Work through EVERY candidate
+  window — they were already scored as the best moments in the video. Extract {min_clips} to {max_clips}
+  high-performing viral clips across the whole video. A 10-minute video easily yields 6 to 10 viral clips. Do not stop early.
 - DIVERSITY: never return two clips that make the same point, tell the same
   story, or land the same joke — even across different windows. Pick the
   stronger one and drop the other. Two clips on the same broad topic are fine
   as long as each lands its own moment.
 
-HOOK PLAYBOOK — pick the strongest fitting pattern for `viral_hook_text` (max 10 words):
-- Open question: "Why does everyone get this wrong?"
-- Hot take / controversy: "Stop doing this. Seriously."
-- Number / fact shock: "97% of people miss this."
-- Story loop: "This one email almost ruined me."
-- POV / pattern interrupt: "POV: you finally understand it."
-(These are English PATTERNS — always write the actual hook in TRANSCRIPT_LANGUAGE.)
-- ABOUT THIS MOMENT, NOT THE VIDEO: the hook and the title name the concrete
-  thing that happens inside this clip — the tool being set up, the action,
-  the number, the claim, the name. A line that could sit on any clip of this
-  video ("I automated my clips with AI") is wrong. If nothing concrete can be
-  named, quote the clip's strongest sentence instead of summarising the topic.
+HOOK PLAYBOOK — pick the strongest fitting viral pattern for `viral_hook_text` (max 10 words, ALWAYS IN SPANISH):
+- Pregunta intrigante: "¿Por qué todo el mundo hace esto mal?"
+- Controversia / Alerta: "¡No cometas este error nunca!"
+- Dato impactante: "El 95% de la gente no sabe esto..."
+- Historia / Bucle: "Esto casi arruina todo..."
+- POV / Interrupción: "POV: cuando descubres el secreto..."
 
-COPY RULES — ALL text fields (descriptions, title, hook) MUST be written in TRANSCRIPT_LANGUAGE ({language}):
-- Descriptions (TikTok + Instagram): 1-2 punchy sentences that tease the payoff
-  without spoiling it, then 3-5 topically relevant hashtags. No generic hashtag spam.
-- `video_title_for_youtube_short`: max 100 chars, curiosity-driven, no fake claims.
+COPY RULES — CRITICAL REQUIREMENT: ALL text fields (`video_title_for_youtube_short`, `video_description_for_tiktok`, `video_description_for_instagram`, `viral_hook_text`, `why`) MUST ALWAYS BE WRITTEN IN HIGH-IMPACT, NATURAL SPANISH (Español), even if the video transcript is in English or another language:
+- Adapt and translate ideas, punchlines, and gaming terms naturally for the Spanish-speaking audience.
+- Descriptions (TikTok + Instagram): 1-2 punchy sentences in Spanish that tease the payoff, plus 3-5 trending Spanish hashtags (#Gaming, #Shorts, #Viral, etc.).
+- `video_title_for_youtube_short`: max 100 chars in Spanish, click-worthy, curiosity-driven with 1-2 relevant emojis.
 - `predicted_score`: honest 0-100 estimate of viral potential.
-- `why`: one sentence, max 20 words, naming what makes THIS moment worth a
-  clip — the specific hook, claim, number or payoff, not the topic.
+- `viral_hook_text`: max 8-10 words in Spanish, magnetic overlay for the first 3-5 seconds.
+- `why`: one sentence in Spanish, max 20 words, naming what makes THIS moment worth a clip.
 
-TRANSCRIPT_LANGUAGE: {language}
+TRANSCRIPT_LANGUAGE: {language} (Translate and write all output copy in Spanish)
 VIDEO_DURATION_SECONDS: {video_duration}
 CANDIDATE_WINDOWS_JSON:
 {windows_json}

@@ -54,7 +54,19 @@ export default function ReframeEditor({ jobId, clipIndex, clipTitle, onClose, on
                     effect: cur.effect ?? 'none',
                 };
             }
-            return cur; // split object {top, bottom}
+            return {
+                top: {
+                    x: cur.top?.x ?? clamp(0.3),
+                    y: cur.top?.y ?? 0.5,
+                    zoom: cur.top?.zoom ?? 1.0,
+                },
+                bottom: {
+                    x: cur.bottom?.x ?? clamp(0.7),
+                    y: cur.bottom?.y ?? 0.5,
+                    zoom: cur.bottom?.zoom ?? 1.0,
+                },
+                ratio: cur.ratio ?? 0.35,
+            };
         }
         return {
             x: clamp(scene.suggested_center),
@@ -83,18 +95,50 @@ export default function ReframeEditor({ jobId, clipIndex, clipTitle, onClose, on
         });
     }, [clamp]);
 
-    const setSplitHalf = useCallback((idx, which, fraction) => {
+    const setSplitHalf = useCallback((idx, which, coords) => {
         setOverrides((o) => {
             const cur = o[idx];
             const base = (cur && typeof cur === 'object' && ('top' in cur))
                 ? cur
-                : { top: { x: clamp(0.3), y: 0.5 }, bottom: { x: clamp(0.7), y: 0.5 } };
-            const anterior = base[which] || { y: 0.5 };
+                : {
+                    top: { x: clamp(0.3), y: 0.5, zoom: 1.0 },
+                    bottom: { x: clamp(0.7), y: 0.5, zoom: 1.0 },
+                    ratio: 0.35,
+                };
+            const anterior = base[which] || { x: 0.5, y: 0.5, zoom: 1.0 };
+            const nextHalf = { ...anterior };
+            if (typeof coords === 'number') {
+                nextHalf.x = clamp(coords);
+            } else if (coords && typeof coords === 'object') {
+                if (coords.x !== undefined) nextHalf.x = clamp(coords.x);
+                if (coords.y !== undefined) nextHalf.y = Math.min(1.0, Math.max(0.0, coords.y));
+                if (coords.zoom !== undefined) nextHalf.zoom = Math.min(2.5, Math.max(1.0, coords.zoom));
+            }
             return {
                 ...o,
                 [idx]: {
                     ...base,
-                    [which]: { x: clamp(fraction), y: anterior.y ?? 0.5 },
+                    [which]: nextHalf,
+                }
+            };
+        });
+    }, [clamp]);
+
+    const setSplitRatio = useCallback((idx, ratio) => {
+        setOverrides((o) => {
+            const cur = o[idx];
+            const base = (cur && typeof cur === 'object' && ('top' in cur))
+                ? cur
+                : {
+                    top: { x: clamp(0.3), y: 0.5, zoom: 1.0 },
+                    bottom: { x: clamp(0.7), y: 0.5, zoom: 1.0 },
+                    ratio: 0.35,
+                };
+            return {
+                ...o,
+                [idx]: {
+                    ...base,
+                    ratio: Math.min(0.65, Math.max(0.15, ratio)),
                 }
             };
         });
@@ -113,8 +157,9 @@ export default function ReframeEditor({ jobId, clipIndex, clipTitle, onClose, on
             return {
                 ...o,
                 [idx]: {
-                    top: { x: clamp(centre - 0.2), y },
-                    bottom: { x: clamp(centre + 0.2), y },
+                    top: { x: clamp(centre - 0.2), y, zoom: 1.0 },
+                    bottom: { x: clamp(centre + 0.2), y, zoom: 1.0 },
+                    ratio: 0.35,
                 }
             };
         });
@@ -138,8 +183,19 @@ export default function ReframeEditor({ jobId, clipIndex, clipTitle, onClose, on
             const payload = Object.fromEntries(Object.entries(overrides).map(([k, v]) => [
                 String(k),
                 (typeof v === 'object' && 'top' in v)
-                    ? { top: { x: Number(v.top.x.toFixed(4)), y: Number(v.top.y.toFixed(4)) },
-                        bottom: { x: Number(v.bottom.x.toFixed(4)), y: Number(v.bottom.y.toFixed(4)) } }
+                    ? {
+                        top: {
+                            x: Number(v.top.x.toFixed(4)),
+                            y: Number((v.top.y ?? 0.5).toFixed(4)),
+                            zoom: Number((v.top.zoom ?? 1.0).toFixed(2)),
+                        },
+                        bottom: {
+                            x: Number(v.bottom.x.toFixed(4)),
+                            y: Number((v.bottom.y ?? 0.5).toFixed(4)),
+                            zoom: Number((v.bottom.zoom ?? 1.0).toFixed(2)),
+                        },
+                        ratio: Number((v.ratio ?? 0.35).toFixed(2)),
+                    }
                     : (typeof v === 'object' && 'x' in v)
                         ? {
                             x: Number(v.x.toFixed(4)),
@@ -210,7 +266,8 @@ export default function ReframeEditor({ jobId, clipIndex, clipTitle, onClose, on
                             playing={playing === scene.index}
                             onPlayToggle={() => setPlaying((p) => (p === scene.index ? null : scene.index))}
                             onUpdateParams={(p) => setSingleParams(scene.index, p)}
-                            onMoveHalf={(which, f) => setSplitHalf(scene.index, which, f)}
+                            onMoveHalf={(which, coords) => setSplitHalf(scene.index, which, coords)}
+                            onSetSplitRatio={(r) => setSplitRatio(scene.index, r)}
                             onToggleSplit={() => toggleSplit(scene.index, scene)}
                             onReset={() => resetScene(scene.index)}
                         />
@@ -242,7 +299,7 @@ export default function ReframeEditor({ jobId, clipIndex, clipTitle, onClose, on
 }
 
 function SceneRow({ scene, value, widthFraction, previewUrl, touched, playing,
-                    onPlayToggle, onUpdateParams, onMoveHalf, onToggleSplit, onReset }) {
+                    onPlayToggle, onUpdateParams, onMoveHalf, onSetSplitRatio, onToggleSplit, onReset }) {
     const boxRef = useRef(null);
     const videoRef = useRef(null);
     const [dragging, setDragging] = useState(null);
@@ -252,6 +309,14 @@ function SceneRow({ scene, value, widthFraction, previewUrl, touched, playing,
     const effect = isSplit ? 'none' : (value?.effect ?? 'none');
     const posX = isSplit ? 0.5 : (value?.x ?? 0.5);
     const posY = isSplit ? 0.5 : (value?.y ?? 0.5);
+
+    const splitRatio = isSplit ? (value.ratio ?? 0.35) : 0.35;
+    const topZoom = isSplit ? (value.top?.zoom ?? 1.0) : 1.0;
+    const botZoom = isSplit ? (value.bottom?.zoom ?? 1.0) : 1.0;
+    const topX = isSplit ? (value.top?.x ?? 0.3) : 0.5;
+    const topY = isSplit ? (value.top?.y ?? 0.5) : 0.5;
+    const botX = isSplit ? (value.bottom?.x ?? 0.7) : 0.5;
+    const botY = isSplit ? (value.bottom?.y ?? 0.5) : 0.5;
 
     useEffect(() => {
         const v = videoRef.current;
@@ -282,8 +347,8 @@ function SceneRow({ scene, value, widthFraction, previewUrl, touched, playing,
             const coords = coordsFromEvent(clientX, clientY);
             if (dragging === 'single') {
                 onUpdateParams({ x: coords.x, y: coords.y });
-            } else {
-                onMoveHalf(dragging, coords.x);
+            } else if (dragging === 'top' || dragging === 'bottom') {
+                onMoveHalf(dragging, { x: coords.x, y: coords.y });
             }
         };
         const up = () => setDragging(null);
@@ -304,10 +369,27 @@ function SceneRow({ scene, value, widthFraction, previewUrl, touched, playing,
         setDragging(which);
     };
 
+    // Single mode geometry
     const curWidthPct = (widthFraction / zoom) * 100;
     const curHeightPct = Math.min(100, (100 / zoom));
     const leftPct = (posX - (widthFraction / zoom) / 2) * 100;
     const topPct = (posY - (1 / zoom) / 2) * 100;
+
+    // Split mode dynamic geometry based on splitRatio and individual zooms!
+    const topAspect = 0.5625 / Math.max(0.15, Math.min(0.70, splitRatio));
+    const botAspect = 0.5625 / Math.max(0.30, Math.min(0.85, 1.0 - splitRatio));
+
+    // Top crop box (e.g. Creator / Minimap / Radar)
+    const topH_pct = Math.min(100, Math.max(16, ((splitRatio / 0.50) * 55) / topZoom));
+    const topW_pct = Math.min(100, Math.max(16, topH_pct * (topAspect / 1.777)));
+    const topLeft_pct = Math.max(0, Math.min(100 - topW_pct, (topX - (topW_pct / 200)) * 100));
+    const topTop_pct = Math.max(0, Math.min(100 - topH_pct, (topY - (topH_pct / 200)) * 100));
+
+    // Bottom crop box (e.g. Gameplay action)
+    const botH_pct = Math.min(100, Math.max(25, (((1.0 - splitRatio) / 0.50) * 75) / botZoom));
+    const botW_pct = Math.min(100, Math.max(20, botH_pct * (botAspect / 1.777)));
+    const botLeft_pct = Math.max(0, Math.min(100 - botW_pct, (botX - (botW_pct / 200)) * 100));
+    const botTop_pct = Math.max(0, Math.min(100 - botH_pct, (botY - (botH_pct / 200)) * 100));
 
     return (
         <div className="p-3.5 rounded-input border border-rule bg-paper2/40 space-y-3">
@@ -333,7 +415,7 @@ function SceneRow({ scene, value, widthFraction, previewUrl, touched, playing,
                         onClick={onToggleSplit}
                         className={`flex items-center gap-1 transition-colors px-2 py-0.5 rounded border ${
                             isSplit ? 'border-brass bg-brass/10 text-brass' : 'border-rule text-muted hover:text-ink2'}`}
-                        title="Dividir en 2 personas apiladas"
+                        title="Dividir en 2 regiones apiladas"
                     >
                         <Columns2 size={12} /> Split
                     </button>
@@ -371,7 +453,7 @@ function SceneRow({ scene, value, widthFraction, previewUrl, touched, playing,
                     <div className="w-full h-full bg-paper3" />
                 )}
 
-                {/* Shading outside the crop window */}
+                {/* Shading outside the crop window in Single mode */}
                 {!isSplit && (
                     <>
                         <div className="absolute inset-y-0 left-0 bg-black/65 pointer-events-none"
@@ -402,39 +484,62 @@ function SceneRow({ scene, value, widthFraction, previewUrl, touched, playing,
                         </div>
                     </div>
                 ) : (
-                    // Split mode
+                    // Split mode with 2D Dragging & Dynamic Proportions
                     <>
+                        {/* Top Box: Creator / Minimap */}
                         <div
                             onMouseDown={startDrag('top')}
                             onTouchStart={startDrag('top')}
-                            className="absolute inset-y-0 border-2 border-brass cursor-ew-resize"
+                            className="absolute border-2 border-brass bg-brass/10 cursor-move flex flex-col justify-between p-1"
                             style={{
-                                left: `${(value.top.x - widthFraction / 2) * 100}%`,
-                                width: `${widthFraction * 100}%`
+                                left: `${topLeft_pct}%`,
+                                top: `${topTop_pct}%`,
+                                width: `${topW_pct}%`,
+                                height: `${topH_pct}%`,
                             }}
                         >
-                            <span className="absolute top-1 left-1 text-[9px] px-1.5 py-0.5 rounded bg-brass text-black font-bold">
-                                STREAMER (35%)
-                            </span>
+                            <div className="flex items-center gap-1 self-start pointer-events-none">
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-brass text-black font-bold uppercase leading-none">
+                                    ARRIBA ({Math.round(splitRatio * 100)}%)
+                                </span>
+                                {topZoom > 1 && (
+                                    <span className="text-[9px] px-1 rounded bg-black/70 text-brass font-mono">
+                                        {topZoom}x
+                                    </span>
+                                )}
+                            </div>
+                            <span className="text-[8px] text-brass opacity-70 self-center">Arrastrar</span>
                         </div>
+
+                        {/* Bottom Box: Gameplay */}
                         <div
                             onMouseDown={startDrag('bottom')}
                             onTouchStart={startDrag('bottom')}
-                            className="absolute inset-y-0 border-2 border-dashed border-cyan-400 cursor-ew-resize"
+                            className="absolute border-2 border-dashed border-cyan-400 bg-cyan-500/10 cursor-move flex flex-col justify-between p-1"
                             style={{
-                                left: `${(value.bottom.x - widthFraction / 2) * 100}%`,
-                                width: `${widthFraction * 100}%`
+                                left: `${botLeft_pct}%`,
+                                top: `${botTop_pct}%`,
+                                width: `${botW_pct}%`,
+                                height: `${botH_pct}%`,
                             }}
                         >
-                            <span className="absolute top-1 left-1 text-[9px] px-1.5 py-0.5 rounded bg-cyan-400 text-black font-bold">
-                                JUEGO (65%)
-                            </span>
+                            <div className="flex items-center gap-1 self-start pointer-events-none">
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-400 text-black font-bold uppercase leading-none">
+                                    ABAJO ({Math.round((1 - splitRatio) * 100)}%)
+                                </span>
+                                {botZoom > 1 && (
+                                    <span className="text-[9px] px-1 rounded bg-black/70 text-cyan-300 font-mono">
+                                        {botZoom}x
+                                    </span>
+                                )}
+                            </div>
+                            <span className="text-[8px] text-cyan-300 opacity-70 self-center">Arrastrar</span>
                         </div>
                     </>
                 )}
             </div>
 
-            {/* Controls Bar for this scene */}
+            {/* Single Mode Controls */}
             {!isSplit && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
                     {/* Zoom / Scale Slider */}
@@ -467,6 +572,113 @@ function SceneRow({ scene, value, widthFraction, previewUrl, touched, playing,
                             <option value="punch_in">Punch-In (Impacto)</option>
                             <option value="blur_bg">Fondo Desenfoque</option>
                         </select>
+                    </div>
+                </div>
+            )}
+
+            {/* Split Mode Controls: Proporción + Zoom Arriba + Zoom Abajo */}
+            {isSplit && (
+                <div className="space-y-3 pt-1 text-xs">
+                    {/* Proporción / Tamaño de cada parte */}
+                    <div className="p-2.5 rounded-input bg-paper3/40 border border-rule/50 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted font-medium flex items-center gap-1.5">
+                                <Columns2 size={13} className="text-brass" /> División de pantalla:
+                            </span>
+                            <span className="readout text-ink font-semibold">
+                                Arriba: <strong className="text-brass">{Math.round(splitRatio * 100)}%</strong> · Abajo: <strong className="text-cyan-400">{Math.round((1 - splitRatio) * 100)}%</strong>
+                            </span>
+                        </div>
+
+                        {/* Presets rápidos */}
+                        <div className="grid grid-cols-3 gap-1.5">
+                            <button
+                                type="button"
+                                onClick={() => onSetSplitRatio(0.25)}
+                                className={`py-1.5 px-2 rounded border text-[11px] transition-colors ${
+                                    Math.round(splitRatio * 100) === 25
+                                        ? 'border-brass bg-brass/10 text-brass font-bold'
+                                        : 'border-rule text-muted hover:text-ink'
+                                }`}
+                            >
+                                25% / 75% 🗺️ (Minimapa)
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onSetSplitRatio(0.35)}
+                                className={`py-1.5 px-2 rounded border text-[11px] transition-colors ${
+                                    Math.round(splitRatio * 100) === 35
+                                        ? 'border-brass bg-brass/10 text-brass font-bold'
+                                        : 'border-rule text-muted hover:text-ink'
+                                }`}
+                            >
+                                35% / 65% 🎮 (Streamer)
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onSetSplitRatio(0.50)}
+                                className={`py-1.5 px-2 rounded border text-[11px] transition-colors ${
+                                    Math.round(splitRatio * 100) === 50
+                                        ? 'border-brass bg-brass/10 text-brass font-bold'
+                                        : 'border-rule text-muted hover:text-ink'
+                                }`}
+                            >
+                                50% / 50% 🎙️ (Mitad)
+                            </button>
+                        </div>
+
+                        {/* Slider libre de proporción */}
+                        <div className="space-y-1">
+                            <input
+                                type="range"
+                                min="0.15"
+                                max="0.60"
+                                step="0.01"
+                                value={splitRatio}
+                                onChange={(e) => onSetSplitRatio(parseFloat(e.target.value))}
+                                className="w-full accent-brass"
+                            />
+                            <div className="flex justify-between text-[10px] text-muted">
+                                <span>15% (Pequeño / Banner)</span>
+                                <span>35% (Streamer estándar)</span>
+                                <span>60% (Grande)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Sliders de Zoom independientes */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Zoom Arriba */}
+                        <div className="flex items-center gap-2 bg-paper3/40 p-2 rounded-input border border-brass/40">
+                            <ZoomIn size={14} className="text-brass shrink-0" />
+                            <span className="text-muted text-[11px] shrink-0">Zoom Arriba:</span>
+                            <input
+                                type="range"
+                                min="1.0"
+                                max="2.5"
+                                step="0.05"
+                                value={topZoom}
+                                onChange={(e) => onMoveHalf('top', { zoom: parseFloat(e.target.value) })}
+                                className="w-full accent-brass"
+                            />
+                            <span className="text-ink font-mono text-[11px] w-9 text-right">{topZoom}x</span>
+                        </div>
+
+                        {/* Zoom Abajo */}
+                        <div className="flex items-center gap-2 bg-paper3/40 p-2 rounded-input border border-cyan-500/40">
+                            <ZoomIn size={14} className="text-cyan-400 shrink-0" />
+                            <span className="text-muted text-[11px] shrink-0">Zoom Abajo:</span>
+                            <input
+                                type="range"
+                                min="1.0"
+                                max="2.5"
+                                step="0.05"
+                                value={botZoom}
+                                onChange={(e) => onMoveHalf('bottom', { zoom: parseFloat(e.target.value) })}
+                                className="w-full accent-cyan-400"
+                            />
+                            <span className="text-ink font-mono text-[11px] w-9 text-right">{botZoom}x</span>
+                        </div>
                     </div>
                 </div>
             )}

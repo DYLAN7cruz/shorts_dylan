@@ -7814,10 +7814,17 @@ async def reframe_clip(req: ReframeRequest, request: Request):
                 if "top" in value and "bottom" in value:
                     def _half(h):
                         if isinstance(h, dict):
-                            return {"x": _fraction(h["x"]), "y": _fraction(h.get("y", 0.5))}
-                        return {"x": _fraction(h), "y": 0.5}
-                    overrides[idx] = {"top": _half(value["top"]),
-                                      "bottom": _half(value["bottom"])}
+                            return {
+                                "x": _fraction(h["x"]),
+                                "y": _fraction(h.get("y", 0.5)),
+                                "zoom": max(1.0, min(3.0, float(h.get("zoom", 1.0)))),
+                            }
+                        return {"x": _fraction(h), "y": 0.5, "zoom": 1.0}
+                    overrides[idx] = {
+                        "top": _half(value["top"]),
+                        "bottom": _half(value["bottom"]),
+                        "ratio": max(0.15, min(0.70, float(value.get("ratio", 0.35)))),
+                    }
                 else:
                     overrides[idx] = {
                         "x": _fraction(value.get("x", 0.5)),

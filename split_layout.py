@@ -145,17 +145,20 @@ def analyze_scene(frames, frame_w):
     return left, right
 
 
-def split_geometry(orig_w, orig_h, out_w, out_h, centre, part_ratio=0.5):
+def split_geometry(orig_w, orig_h, out_w, out_h, centre, part_ratio=0.5, zoom=1.0):
     """Crop box (w, h, x, y) framing ``centre`` for one part of the stack.
 
     When part_ratio is 0.5, each half is out_w x out_h/2.
-    For streamer splits, top is typically 0.35 (35%) and bottom is 0.65 (65%).
+    For streamer/minimap splits, top is typically 0.25 to 0.40 and bottom is the remainder.
+    zoom allows zooming in (e.g. 1.0 to 3.0) to frame just a face, radar, or minimap.
     """
     half_h = int(round(out_h * part_ratio))
     half_h -= half_h % 2
     aspect = out_w / float(half_h)
 
-    crop_h = int(round(orig_h * max(0.3, min(SPLIT_TIGHTNESS, 1.0))))
+    z = max(1.0, min(3.0, float(zoom or 1.0)))
+    base_crop_h = int(round(orig_h * max(0.25, min(SPLIT_TIGHTNESS, 1.0))))
+    crop_h = int(round(base_crop_h / z))
     crop_w = int(round(crop_h * aspect))
     if crop_w > orig_w:
         crop_w = orig_w
@@ -186,10 +189,13 @@ def split_filtergraph(orig_w, orig_h, out_w, out_h, left_centre, right_centre, t
     """
     t_ratio = 0.5 if top_ratio is None else float(top_ratio)
     b_ratio = 1.0 - t_ratio
+    top_zoom = left_centre[2] if len(left_centre) > 2 else 1.0
+    bot_zoom = right_centre[2] if len(right_centre) > 2 else 1.0
+
     top_w, top_h, top_x, top_y, actual_top_h = split_geometry(
-        orig_w, orig_h, out_w, out_h, left_centre, part_ratio=t_ratio)
+        orig_w, orig_h, out_w, out_h, left_centre, part_ratio=t_ratio, zoom=top_zoom)
     bot_w, bot_h, bot_x, bot_y, actual_bot_h = split_geometry(
-        orig_w, orig_h, out_w, out_h, right_centre, part_ratio=b_ratio)
+        orig_w, orig_h, out_w, out_h, right_centre, part_ratio=b_ratio, zoom=bot_zoom)
 
     return (
         f"[0:v]split=2[ta][ba];"

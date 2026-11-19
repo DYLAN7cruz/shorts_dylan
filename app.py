@@ -1758,7 +1758,7 @@ CAPTION_STYLE_FIELDS = (
     "style", "position", "font_size", "font_name", "font_color",
     "border_color", "border_width", "bg_color", "bg_opacity",
     "highlight_color", "effect", "base_opacity", "uppercase", "reveal",
-    "shadow", "max_chars", "max_duration")
+    "shadow", "max_chars", "max_duration", "y_offset")
 
 
 def _words_transcript(words, language="en"):
@@ -1796,7 +1796,8 @@ def _burn_caption_style(video_path, out_path, sub_path, transcript, start, end,
             highlight_color=s["highlight_color"], bg_color=s["bg_color"],
             bg_opacity=s["bg_opacity"], effect=s["effect"],
             base_opacity=s["base_opacity"], uppercase=s["uppercase"],
-            reveal=s["reveal"], shadow=s["shadow"])
+            reveal=s["reveal"], shadow=s["shadow"],
+            y_offset=s.get("y_offset"))
         if max_chars is not None:
             opts["max_chars"] = max_chars
         if max_duration is not None:
@@ -1811,7 +1812,8 @@ def _burn_caption_style(video_path, out_path, sub_path, transcript, start, end,
                    alignment=s["position"], fontsize=s["font_size"],
                    font_name=s["font_name"], font_color=s["font_color"],
                    border_color=s["border_color"], border_width=s["border_width"],
-                   bg_color=s["bg_color"], bg_opacity=s["bg_opacity"])
+                   bg_color=s["bg_color"], bg_opacity=s["bg_opacity"],
+                   y_offset=s.get("y_offset"))
     return True
 
 
@@ -6955,6 +6957,7 @@ class SubtitleRequest(BaseModel):
     # instead of regenerating from the stored transcript — without this, text
     # edits in the modal were silently discarded on the server render path.
     words: Optional[List[CaptionWordIn]] = None
+    y_offset: Optional[float] = None
 
 
 @app.get("/api/clip/{job_id}/{clip_index}/transcript")
@@ -8284,6 +8287,7 @@ async def add_subtitles(req: SubtitleRequest, request: Request):
         bg_color=req.bg_color, bg_opacity=req.bg_opacity,
         effect=req.effect, base_opacity=req.base_opacity, uppercase=req.uppercase,
         reveal=req.reveal, shadow=req.shadow,
+        y_offset=req.y_offset,
     )
     if req.max_chars is not None:
         karaoke_opts["max_chars"] = max(1, min(40, int(req.max_chars)))
@@ -8340,7 +8344,8 @@ async def add_subtitles(req: SubtitleRequest, request: Request):
                                alignment=req.position, fontsize=req.font_size,
                                font_name=req.font_name, font_color=req.font_color,
                                border_color=req.border_color, border_width=req.border_width,
-                               bg_color=req.bg_color, bg_opacity=req.bg_opacity)
+                               bg_color=req.bg_color, bg_opacity=req.bg_opacity,
+                               y_offset=req.y_offset)
             await loop.run_in_executor(None, run_burn)
         else:
             # Same code path the hook / edit / recut re-burn uses, so the look

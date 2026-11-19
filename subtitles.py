@@ -468,7 +468,7 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
                  highlight_color="#FFD700", bg_color="#000000", bg_opacity=0.0,
                  effect="none", base_opacity=1.0, uppercase=False,
                  margin_v=SAFE_MARGIN_V, split_ranges=None,
-                 reveal=False, shadow=0):
+                 reveal=False, shadow=0, y_offset=None):
     """
     Generates a karaoke-style ASS file: each block is shown like the SRT path,
     but the currently spoken word is rendered in highlight_color (modern
@@ -493,8 +493,17 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     if final_fontsize < 10:
         final_fontsize = 10
 
-    align_map = {'top': 8, 'middle': 5, 'bottom': 2}
-    ass_alignment = align_map.get(str(alignment).lower(), 2)
+    if y_offset is not None:
+        try:
+            yo = float(y_offset)
+            margin_v = int(round(max(12, min(265, (1.0 - yo) * 288))))
+            ass_alignment = 2
+        except (ValueError, TypeError):
+            align_map = {'top': 8, 'middle': 5, 'bottom': 2}
+            ass_alignment = align_map.get(str(alignment).lower(), 2)
+    else:
+        align_map = {'top': 8, 'middle': 5, 'bottom': 2}
+        ass_alignment = align_map.get(str(alignment).lower(), 2)
 
     # On a SPLIT scene the two speakers are stacked and the seam between the
     # halves (exactly mid-frame) is the one place the text covers nobody, so
@@ -507,6 +516,8 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     seam_ranges = [(float(a), float(b)) for a, b in (split_ranges or [])]
 
     def seam_prefix(t):
+        if y_offset is not None:
+            return ""
         return "{\\an5}" if any(a <= t < b for a, b in seam_ranges) else ""
 
     safe_font = _sanitize_font_name(font_name)
@@ -708,17 +719,27 @@ def _sanitize_font_name(name):
 def subtitles_filter(srt_path, alignment=2, fontsize=16,
                      font_name="Verdana", font_color="#FFFFFF",
                      border_color="#000000", border_width=2,
-                     bg_color="#000000", bg_opacity=0.0):
+                     bg_color="#000000", bg_opacity=0.0, y_offset=None):
     """The -vf string burn_subtitles uses (also fed to hooks.add_hook_to_video)."""
     # Position mapping
-    ass_alignment = 2
-    align_lower = str(alignment).lower()
-    if align_lower == 'top':
-        ass_alignment = 6
-    elif align_lower == 'middle':
-        ass_alignment = 10
-    elif align_lower == 'bottom':
+    if y_offset is not None:
+        try:
+            yo = float(y_offset)
+            margin_v = int(round(max(12, min(265, (1.0 - yo) * 288))))
+            ass_alignment = 2
+        except (ValueError, TypeError):
+            margin_v = SAFE_MARGIN_V
+            ass_alignment = 2
+    else:
+        margin_v = SAFE_MARGIN_V
         ass_alignment = 2
+        align_lower = str(alignment).lower()
+        if align_lower == 'top':
+            ass_alignment = 6
+        elif align_lower == 'middle':
+            ass_alignment = 10
+        elif align_lower == 'bottom':
+            ass_alignment = 2
 
     # Font size scaling for ASS virtual resolution (PlayResY=288 default)
     # For vertical 1080x1920 video, we need larger text for readability
@@ -759,7 +780,7 @@ def subtitles_filter(srt_path, alignment=2, fontsize=16,
         f"BorderStyle={border_style},"
         f"Outline={outline_width},"
         f"Shadow=0,"
-        f"MarginV={SAFE_MARGIN_V},"
+        f"MarginV={margin_v},"
         f"Bold=1"
     )
 
@@ -799,7 +820,7 @@ def _video_size(path):
 def burn_subtitles(video_path, srt_path, output_path, alignment=2, fontsize=16,
                    font_name="Verdana", font_color="#FFFFFF",
                    border_color="#000000", border_width=2,
-                   bg_color="#000000", bg_opacity=0.0, mark=None):
+                   bg_color="#000000", bg_opacity=0.0, mark=None, y_offset=None):
     """
     Burns subtitles into the video using FFmpeg.
     Supports two modes:
@@ -814,7 +835,7 @@ def burn_subtitles(video_path, srt_path, output_path, alignment=2, fontsize=16,
     vf = subtitles_filter(srt_path, alignment=alignment, fontsize=fontsize,
                           font_name=font_name, font_color=font_color,
                           border_color=border_color, border_width=border_width,
-                          bg_color=bg_color, bg_opacity=bg_opacity)
+                          bg_color=bg_color, bg_opacity=bg_opacity, y_offset=y_offset)
 
     tail = ['-c:a', 'copy', *video_encode_args(QUALITY), *METADATA_SCRUB,
             '-movflags', '+faststart']

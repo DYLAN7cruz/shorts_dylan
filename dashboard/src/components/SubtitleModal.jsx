@@ -56,10 +56,11 @@ const EFFECT_TO_ANIMATION = { pop: 'pop', glow: 'word-highlight', highlight: 'ka
 // with (subtitles.AUTO_CAPTION_STYLE font_size 40), so opening the modal and
 // applying never resizes the captions.
 const SIZE_OPTIONS = [
-    { value: 40, label: 'S' },
-    { value: 44, label: 'M' },
-    { value: 56, label: 'L' },
-    { value: 70, label: 'XL' },
+    { value: 24, label: 'XS' },
+    { value: 32, label: 'S' },
+    { value: 40, label: 'M' },
+    { value: 54, label: 'L' },
+    { value: 68, label: 'XL' },
 ];
 
 // Characters per line at size 44 (M), per font: Anton is condensed, Montserrat
@@ -77,9 +78,9 @@ const lineBudget = (fontName, fontSize, oneWord) =>
 const PREVIEW_PX_PER_UNIT = 3.85;
 
 const POSITION_OPTIONS = [
-    { value: 'top', label: 'top' },
-    { value: 'middle', label: 'middle' },
-    { value: 'bottom', label: 'bottom' },
+    { value: 'top', label: 'Arriba' },
+    { value: 'middle', label: 'Centro' },
+    { value: 'bottom', label: 'Abajo' },
 ];
 
 // Ready-made caption looks burned server-side as karaoke ASS (word highlight):
@@ -122,11 +123,16 @@ const swatchClass = (selected) =>
         ? 'ring-2 ring-[color:var(--color-accent)] ring-offset-2 ring-offset-[color:var(--color-paper-2)]'
         : 'ring-1 ring-[color:var(--color-rule-2)] hover:ring-[color:var(--color-accent)]'}`;
 
-export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll, onRemove, isProcessing, videoUrl, jobId, clipIndex, existingHook, bulkCount = 0, bulkProgress }) {
-    // Opens on the look the clip already has (the Default preset), so
-    // "apply" without touching anything changes nothing.
-    const [position, setPosition] = useState('bottom');
-    const [fontSize, setFontSize] = useState(40);
+export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll, onRemove, isProcessing, videoUrl, jobId, clipIndex, existingHook, initialCaptionStyle, bulkCount = 0, bulkProgress }) {
+    // Opens on the look the clip already has or default preset
+    const [position, setPosition] = useState(initialCaptionStyle?.position || 'bottom');
+    const [yOffset, setYOffset] = useState(
+        initialCaptionStyle?.y_offset ?? (
+            initialCaptionStyle?.position === 'top' ? 0.18 :
+            initialCaptionStyle?.position === 'middle' ? 0.50 : 0.80
+        )
+    );
+    const [fontSize, setFontSize] = useState(initialCaptionStyle?.font_size ?? initialCaptionStyle?.fontSize ?? 40);
     const [fontName, setFontName] = useState('Anton');
     const [fontColor, setFontColor] = useState('#FFFFFF');
     const [highlightColor, setHighlightColor] = useState('#FFE500');
@@ -233,6 +239,7 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
     const subtitleConfig = {
         captions,
         position,
+        y_offset: yOffset,
         maxChars,
         maxDurationMs: maxDuration * 1000,
         style: {
@@ -268,7 +275,7 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
     const fallbackPreviewStyle = {
         fontFamily: fontName,
         color: fontColor,
-        fontSize: '20px',
+        fontSize: `${Math.max(12, Math.round(fontSize * 0.5))}px`,
         fontWeight: 'bold',
         maxWidth: '85%',
         padding: '6px 12px',
@@ -304,11 +311,13 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                     ) : (
                         <>
                             <video src={videoUrl} className="w-full h-full object-contain opacity-50" muted playsInline />
-                            <div className={`absolute w-full px-8 text-center transition-all duration-300 pointer-events-none flex flex-col items-center justify-center
-                                ${position === 'top' ? 'top-20' : ''}
-                                ${position === 'middle' ? 'top-0 bottom-0' : ''}
-                                ${position === 'bottom' ? 'bottom-20' : ''}
-                            `}>
+                            <div
+                                className="absolute w-full px-8 text-center transition-all duration-150 pointer-events-none flex flex-col items-center justify-center"
+                                style={{
+                                    top: `${Math.round(yOffset * 100)}%`,
+                                    transform: 'translateY(-50%)',
+                                }}
+                            >
                                 <span style={fallbackPreviewStyle}>
                                     This is how your subtitles<br/>will appear on the video
                                 </span>
@@ -366,26 +375,103 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                             )}
                         </div>
 
-                        {/* Position Selector */}
+                        {/* Posición y Altura */}
                         <div>
-                            <p className="eyebrow mb-2">Position</p>
+                            <div className="flex items-center justify-between mb-2">
+                                <p className="eyebrow">Posición y Altura</p>
+                                <span className="readout text-[11px] text-brass">{Math.round(yOffset * 100)}% altura</span>
+                            </div>
                             <SegmentedControl
                                 options={POSITION_OPTIONS}
                                 value={position}
-                                onChange={setPosition}
+                                onChange={(p) => {
+                                    setPosition(p);
+                                    if (p === 'top') setYOffset(0.18);
+                                    else if (p === 'middle') setYOffset(0.50);
+                                    else if (p === 'bottom') setYOffset(0.80);
+                                }}
                                 size="sm"
                             />
+                            {/* Vertical fine slider */}
+                            <div className="mt-2.5 p-2.5 rounded-input bg-paper3/40 border border-rule/50 space-y-1.5">
+                                <div className="flex justify-between text-[11px] text-muted">
+                                    <span>Mover arriba / abajo:</span>
+                                    <span className="font-medium text-ink font-mono">{Math.round(yOffset * 100)}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0.08"
+                                    max="0.90"
+                                    step="0.01"
+                                    value={yOffset}
+                                    onChange={(e) => {
+                                        const v = parseFloat(e.target.value);
+                                        setYOffset(v);
+                                        if (v < 0.35) setPosition('top');
+                                        else if (v > 0.65) setPosition('bottom');
+                                        else setPosition('middle');
+                                    }}
+                                    className="w-full accent-[var(--color-accent)]"
+                                />
+                                <div className="flex justify-between text-[10px] text-muted">
+                                    <button
+                                        type="button"
+                                        onClick={() => { setPosition('top'); setYOffset(0.18); }}
+                                        className="hover:text-brass transition-colors"
+                                    >
+                                        Arriba (18%)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setPosition('middle'); setYOffset(0.50); }}
+                                        className="hover:text-brass transition-colors"
+                                    >
+                                        Centro (50%)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setPosition('bottom'); setYOffset(0.80); }}
+                                        className="hover:text-brass transition-colors"
+                                    >
+                                        Abajo (80%)
+                                    </button>
+                                </div>
+                            </div>
                         </div>
 
-                        {/* Size */}
+                        {/* Tamaño de letra */}
                         <div>
-                            <p className="eyebrow mb-2">Size</p>
+                            <div className="flex items-center justify-between mb-2">
+                                <p className="eyebrow">Tamaño de letra</p>
+                                <span className="readout text-[11px] text-brass">{fontSize}px</span>
+                            </div>
                             <SegmentedControl
                                 options={SIZE_OPTIONS}
                                 value={fontSize}
                                 onChange={setFontSize}
                                 size="sm"
                             />
+                            {/* Fine font size slider */}
+                            <div className="mt-2.5 p-2.5 rounded-input bg-paper3/40 border border-rule/50 space-y-1.5">
+                                <div className="flex justify-between text-[11px] text-muted">
+                                    <span>Ajuste fino de tamaño:</span>
+                                    <span className="font-medium text-ink font-mono">{fontSize}px</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="16"
+                                    max="80"
+                                    step="1"
+                                    value={fontSize}
+                                    onChange={(e) => setFontSize(parseInt(e.target.value))}
+                                    className="w-full accent-[var(--color-accent)]"
+                                />
+                                <div className="flex justify-between text-[10px] text-muted">
+                                    <span>16px (Mini)</span>
+                                    <span>40px (Normal)</span>
+                                    <span>80px (Grande)</span>
+                                </div>
+                            </div>
                         </div>
 
                         {style === 'karaoke' && (
@@ -564,7 +650,7 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                             const textEdited = originalCaptions.length > 0
                                 && editableText.trim() !== originalCaptions.map((c) => c.text).join(' ').trim();
                             const styleOptions = {
-                                position, fontSize, fontName, fontColor, borderColor, borderWidth, bgColor, bgOpacity,
+                                position, y_offset: yOffset, fontSize, fontName, fontColor, borderColor, borderWidth, bgColor, bgOpacity,
                                 // Karaoke burn (server-side ASS render)
                                 style, effect, baseOpacity, uppercase, highlightColor,
                                 reveal: !oneWord && reveal, shadow, maxChars, maxDuration,

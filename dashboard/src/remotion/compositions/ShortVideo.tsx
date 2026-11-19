@@ -1,5 +1,6 @@
 import React from "react";
-import { AbsoluteFill, Video } from "remotion";
+import { AbsoluteFill } from "remotion";
+import { Video } from "@remotion/media";
 import type { ShortVideoProps } from "../lib/types";
 import { Subtitles } from "./Subtitles";
 import { HookOverlay } from "./HookOverlay";

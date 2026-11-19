@@ -668,6 +668,7 @@ function App() {
             job_id: jobId,
             clip_index: i,
             position: options.position,
+            y_offset: options.y_offset ?? null,
             font_size: options.fontSize,
             font_name: options.fontName,
             font_color: options.fontColor,

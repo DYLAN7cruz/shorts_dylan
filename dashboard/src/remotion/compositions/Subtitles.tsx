@@ -82,7 +82,13 @@ const SubtitleBlock: React.FC<SubtitleBlockProps> = ({
   const currentTimeMs = blockStartMs + (frame / fps) * 1000;
   const activeIndex = getActiveWordIndex(block.words, currentTimeMs);
 
-  const positionStyle = POSITION_MAP[position] ?? POSITION_MAP.bottom;
+  const positionStyle: React.CSSProperties = (config.y_offset !== undefined && config.y_offset !== null)
+    ? {
+        top: `${Math.round(config.y_offset * 100)}%`,
+        transform: "translateY(-50%)",
+        bottom: "auto",
+      }
+    : (POSITION_MAP[position] ?? POSITION_MAP.bottom);
   const fontStack = getFontStack(style.fontFamily);
 
   // Background box style

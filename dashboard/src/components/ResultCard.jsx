@@ -591,6 +591,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     job_id: jobId,
                     clip_index: index,
                     position: options.position,
+                    y_offset: options.y_offset ?? null,
                     font_size: options.fontSize,
                     font_name: options.fontName,
                     font_color: options.fontColor,
@@ -1488,6 +1489,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 jobId={jobId}
                 clipIndex={index}
                 existingHook={activeLayers.hook}
+                initialCaptionStyle={clip.caption_style}
             />
 
             <HookModal

@@ -19,6 +19,8 @@ export const ShortVideo: React.FC<Record<string, unknown>> = (rawProps) => {
       <VideoEffects config={effects}>
         <Video
           src={videoUrl}
+          delayRenderTimeoutInMilliseconds={60000}
+          delayRenderRetries={2}
           style={{ width: "100%", height: "100%", objectFit: "cover" }}
         />
       </VideoEffects>

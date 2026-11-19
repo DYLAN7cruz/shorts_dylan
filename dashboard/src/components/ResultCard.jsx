@@ -366,7 +366,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
 
     const [activeLayers, setActiveLayers] = useState(initialState?.active_layers || {
         subtitles: null,
-        hook: initialHook,
+        hook: null,
         effects: null,
     });
     const [showMaskModal, setShowMaskModal] = useState(false);
@@ -535,19 +535,8 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             if (data.new_video_url) {
                 const serverUrl = getApiUrl(data.new_video_url);
                 setServerVideoFile(data.new_video_url.split('/').pop());
-                const remaining = { ...activeLayers, subtitles: null };
-                setActiveLayers(remaining);
-                if (remaining.hook || remaining.effects) {
-                    setCurrentVideoUrl(await renderInBrowser({
-                        videoUrl: serverUrl,
-                        durationInSeconds: clipDuration,
-                        subtitles: null,
-                        hook: remaining.hook,
-                        effects: remaining.effects,
-                    }));
-                } else {
-                    setCurrentVideoUrl(serverUrl);
-                }
+                setActiveLayers({ subtitles: null, hook: null, effects: null });
+                setCurrentVideoUrl(serverUrl);
                 if (videoRef.current) videoRef.current.load();
                 setShowSubtitleModal(false);
             }
@@ -567,20 +556,24 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             // the in-browser Remotion path only handles classic styles, and only
             // when the server file has no burned-in content to preserve.
             if (options.remotion && options.style !== 'karaoke' && !hasServerBurns) {
-                // Accumulate layer and render all layers together
-                const newLayers = { ...activeLayers, subtitles: options.remotion };
-                setActiveLayers(newLayers);
-                const blobUrl = await renderInBrowser({
-                    videoUrl: originalVideoUrl,
-                    durationInSeconds: clipDuration,
-                    subtitles: newLayers.subtitles,
-                    hook: newLayers.hook,
-                    effects: newLayers.effects,
-                });
-                setCurrentVideoUrl(blobUrl);
-                if (videoRef.current) videoRef.current.load();
-                setShowSubtitleModal(false);
-                return;
+                try {
+                    // Accumulate layer and render all layers together
+                    const newLayers = { ...activeLayers, subtitles: options.remotion };
+                    setActiveLayers(newLayers);
+                    const blobUrl = await renderInBrowser({
+                        videoUrl: originalVideoUrl,
+                        durationInSeconds: clipDuration,
+                        subtitles: newLayers.subtitles,
+                        hook: newLayers.hook,
+                        effects: newLayers.effects,
+                    });
+                    setCurrentVideoUrl(blobUrl);
+                    if (videoRef.current) videoRef.current.load();
+                    setShowSubtitleModal(false);
+                    return;
+                } catch (browserRenderErr) {
+                    console.warn('In-browser Remotion render failed, falling back to server FFmpeg', browserRenderErr);
+                }
             }
 
             // Fallback: legacy FFmpeg
@@ -620,23 +613,8 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             if (data.new_video_url) {
                 const serverUrl = getApiUrl(data.new_video_url);
                 setServerVideoFile(data.new_video_url.split('/').pop());
-                // Subtitles are burned into the server file now — drop the
-                // browser subtitle layer and re-compose any remaining browser
-                // layers (hook/effects) over the new file so they aren't lost.
-                const remaining = { ...activeLayers, subtitles: null, hook: activeLayers.hook || initialHook };
-                setActiveLayers(remaining);
-                if (remaining.hook || remaining.effects) {
-                    const blobUrl = await renderInBrowser({
-                        videoUrl: serverUrl,
-                        durationInSeconds: clipDuration,
-                        subtitles: null,
-                        hook: remaining.hook,
-                        effects: remaining.effects,
-                    });
-                    setCurrentVideoUrl(blobUrl);
-                } else {
-                    setCurrentVideoUrl(serverUrl);
-                }
+                setActiveLayers({ subtitles: null, hook: null, effects: null });
+                setCurrentVideoUrl(serverUrl);
                 if (videoRef.current) videoRef.current.load();
                 setShowSubtitleModal(false);
             }
@@ -653,20 +631,24 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
         setEditError(null);
         try {
             if (hookData.remotion && !hasServerBurns) {
-                // Accumulate layer and render all layers together
-                const newLayers = { ...activeLayers, hook: hookData.remotion };
-                setActiveLayers(newLayers);
-                const blobUrl = await renderInBrowser({
-                    videoUrl: originalVideoUrl,
-                    durationInSeconds: clipDuration,
-                    subtitles: newLayers.subtitles,
-                    hook: newLayers.hook,
-                    effects: newLayers.effects,
-                });
-                setCurrentVideoUrl(blobUrl);
-                if (videoRef.current) videoRef.current.load();
-                setShowHookModal(false);
-                return;
+                try {
+                    // Accumulate layer and render all layers together
+                    const newLayers = { ...activeLayers, hook: hookData.remotion };
+                    setActiveLayers(newLayers);
+                    const blobUrl = await renderInBrowser({
+                        videoUrl: originalVideoUrl,
+                        durationInSeconds: clipDuration,
+                        subtitles: newLayers.subtitles,
+                        hook: newLayers.hook,
+                        effects: newLayers.effects,
+                    });
+                    setCurrentVideoUrl(blobUrl);
+                    if (videoRef.current) videoRef.current.load();
+                    setShowHookModal(false);
+                    return;
+                } catch (browserRenderErr) {
+                    console.warn('In-browser Remotion render failed, falling back to server FFmpeg', browserRenderErr);
+                }
             }
 
             // Fallback: legacy FFmpeg

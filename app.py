@@ -1845,11 +1845,12 @@ def _restyle_captions(video_path, transcript, start, end, style,
 
 def _recut_captioner(clip):
     """perform_recut's ``captioner`` for a clip whose captions were styled
-    in the modal, or None for the default look. Edited words are not carried:
+    in the modal, or default look if unstyled. Edited words are not carried:
     their timings belong to the previous cut."""
     style = clip.get('caption_style')
     if not style:
-        return None
+        import subtitles
+        style = dict(subtitles.AUTO_CAPTION_STYLE)
     return lambda path, transcript, start, end: _restyle_captions(
         path, transcript, start, end, style)
 
@@ -8926,6 +8927,16 @@ async def mask_facecam(req: FacecamMaskRequest, request: Request):
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, run_ffmpeg)
 
+    # Reapply captions as outermost layer so mask never loses subtitles
+    try:
+        recap = await loop.run_in_executor(
+            None, _reapply_captions, req.job_id, req.clip_index, out_path)
+        if recap and os.path.exists(recap):
+            out_path = recap
+            out_name = os.path.basename(recap)
+    except Exception as ce:
+        print(f"⚠️ Re-applying captions on facecam mask failed: {ce}")
+
     delivered_name = await _deliver(request, req.job_id, out_name)
     new_video_url = f"/videos/{req.job_id}/{delivered_name}"
     clip['video_url'] = new_video_url
@@ -9101,6 +9112,16 @@ async def streamer_split_clip(req: StreamerSplitRequest, request: Request):
                     out_name = os.path.basename(hooked_path)
             except Exception as he:
                 print(f"⚠️ Re-applying hook on streamer split failed: {he}")
+
+        # Always reapply captions as outermost layer so subtitles are never lost on streamer split
+        try:
+            recap = await loop.run_in_executor(
+                None, _reapply_captions, req.job_id, req.clip_index, out_path)
+            if recap and os.path.exists(recap):
+                out_path = recap
+                out_name = os.path.basename(recap)
+        except Exception as ce:
+            print(f"⚠️ Re-applying captions on streamer split failed: {ce}")
 
         delivered_name = await _deliver(request, req.job_id, out_name)
         new_video_url = f"/videos/{req.job_id}/{delivered_name}"

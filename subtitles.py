@@ -516,7 +516,7 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     seam_ranges = [(float(a), float(b)) for a, b in (split_ranges or [])]
 
     def seam_prefix(t):
-        if y_offset is not None:
+        if y_offset is not None or str(alignment).lower() == 'bottom':
             return ""
         return "{\\an5}" if any(a <= t < b for a, b in seam_ranges) else ""
 

@@ -267,8 +267,8 @@ Rules:
 - THE 2-SECOND TEST is the main criterion: would the first 2 seconds of this
   moment force a cold viewer (no context) to keep watching? Windows that only
   work with prior context score low.
-- Prefer windows with strong hooks, conflict, surprise, outrage, emotion,
-  novelty, big numbers, or a clear payoff.
+- Prefer windows with strong standalone value: tutorials, secret tricks, explanations, high emotion, conflict, surprise, intense gameplay, comedic fails, or clear payoffs.
+- Windows where the speaker introduces a specific problem or tip ("cómo conseguir...", "el truco es...", "miren esto...") make the most viral standalone shorts and should score 75-95.
 - A window may carry `viewers_clipped` / `viewer_clip_views`: the stream's own
   live viewers clipped that stretch themselves. That is strong evidence the
   moment lands even when the transcript looks thin (a chase, a crash, a scream),
@@ -294,34 +294,34 @@ Return only:
 """
 
 DETAIL_PROMPT_TEMPLATE = """
-You are a senior short-form video editor and viral copywriter.
-Choose the BEST short clips from these shortlisted candidate windows.
+You are a master viral short-form video editor and strategist for TikTok, YouTube Shorts, and Instagram Reels.
+Choose the absolute BEST, most engaging, and logically coherent short clips from these candidate windows.
+
+CRITICAL RULE — LOGICAL INTRO & PREMISE (NEVER START ON CONTINUATION):
+- ABSOLUTELY NEVER start a clip mid-sentence, mid-conversation, or on discourse continuation words such as:
+  "entonces", "y bueno", "como les decía", "después", "pero", "y luego", "o sea", "por eso", "así que", or dangling pronouns ("eso", "esto", "él", "ella").
+- The clip's `start` timestamp MUST be set to the EXACT beginning of the full thought, question, or thematic statement where the streamer introduces the subject or problem (e.g., "Miren cómo conseguir armas en GTA 6...", "¿Sabías este secreto?", "Hoy vamos a probar...").
+- If the high-action moment happens at second 120, but the streamer explained what they were doing at second 112 ("Voy a intentar robar este helicóptero..."), START AT 112 so the viewer understands the context!
+- STANDS ALONE 100%: Anyone watching this clip for the first time cold on TikTok/Reels must instantly understand the premise within the first 3 seconds without having seen any previous part of the stream.
+- If a clip opens on a pronoun ("eso pasó"), an answer to an unseen question, or a continuation ("y después fui..."), move the START EARLIER to where the idea was born.
+
+VIRAL 3-ACT STRUCTURE:
+1. Act 1 - The Premise / Hook (0-4s): Clear introduction of the topic, challenge, question, or shock.
+2. Act 2 - The Demonstration / Tension (4-35s): The gameplay, tutorial, argument, or build-up.
+3. Act 3 - The Payoff / Resolution: The punchline, victory, epic fail, or revelation. NEVER cut off mid-word or before the thought ends.
 
 CLIP RULES:
 - Return only valid JSON.
 - Each clip must be {min_secs:g} to {max_secs:g} seconds long, in absolute seconds from the start of the source video.
 - Stay within the candidate window boundaries.
-- THE 2-SECOND RULE: the clip MUST open on its strongest moment. If the first
-  2 seconds would not stop a cold viewer from scrolling, move the start or skip the clip.
-- Start slightly before the hook and end slightly after the payoff when possible.
-- When a window has `viewer_moments` ([start, end] stretches the stream's
-  viewers clipped), the best clip of that window should cover the strongest
-  of them, opening a few seconds before it so the moment has its setup.
-- Do not cut in the middle of a word or phrase.
-- No generic intros/outros unless they are the hook.
-- STANDS ALONE: the clip must make sense to someone who has seen nothing else.
-  If it opens on a pronoun, a "that", a "so anyway", or an answer whose question
-  was asked earlier, move the start back to where the idea begins or skip it.
-  A brilliant moment that needs the previous five minutes is not a clip.
-  Fix this by moving the START earlier, never by cutting the ending short: a
-  clip that loses its payoff to gain context has traded down.
-- HOW MANY: return AT LEAST {min_clips} to {max_clips} clips. Work through EVERY candidate
-  window — they were already scored as the best moments in the video. Extract {min_clips} to {max_clips}
-  high-performing viral clips across the whole video. A 10-minute video easily yields 6 to 10 viral clips. Do not stop early.
-- DIVERSITY: never return two clips that make the same point, tell the same
-  story, or land the same joke — even across different windows. Pick the
-  stronger one and drop the other. Two clips on the same broad topic are fine
-  as long as each lands its own moment.
+- When a window has `viewer_moments` ([start, end] stretches the stream's viewers clipped), the best clip of that window should cover the strongest of them, opening a few seconds before it so the moment has its setup.
+- Do not cut in the middle of a word or phrase. End on a natural pause or complete sentence.
+- HOW MANY: return {min_clips} to {max_clips} clips across the entire video.
+  * A 10-minute video yields 5 to 8 high-value clips.
+  * A 30-minute video yields 10 to 15 high-value clips.
+  * A 60-minute video yields 18 to 25 high-value clips.
+  Examine ALL candidate windows thoroughly and extract every genuinely entertaining or informative moment. Do not stop early.
+- DIVERSITY: never return two clips that make the same point or land the same joke. Each clip must cover its own unique, standout moment.
 
 HOOK PLAYBOOK — pick the strongest fitting viral pattern for `viral_hook_text` (max 10 words, ALWAYS IN SPANISH):
 - Pregunta intrigante: "¿Por qué todo el mundo hace esto mal?"
@@ -329,13 +329,14 @@ HOOK PLAYBOOK — pick the strongest fitting viral pattern for `viral_hook_text`
 - Dato impactante: "El 95% de la gente no sabe esto..."
 - Historia / Bucle: "Esto casi arruina todo..."
 - POV / Interrupción: "POV: cuando descubres el secreto..."
+- Tutorial / Secreto: "Cómo conseguir armas secretas en GTA 6"
 
 COPY RULES — CRITICAL REQUIREMENT: ALL text fields (`video_title_for_youtube_short`, `video_description_for_tiktok`, `video_description_for_instagram`, `viral_hook_text`, `why`) MUST ALWAYS BE WRITTEN IN HIGH-IMPACT, NATURAL SPANISH (Español), even if the video transcript is in English or another language:
 - Adapt and translate ideas, punchlines, and gaming terms naturally for the Spanish-speaking audience.
 - Descriptions (TikTok + Instagram): 1-2 punchy sentences in Spanish that tease the payoff, plus 3-5 trending Spanish hashtags (#Gaming, #Shorts, #Viral, etc.).
 - `video_title_for_youtube_short`: max 100 chars in Spanish, click-worthy, curiosity-driven with 1-2 relevant emojis.
 - `predicted_score`: honest 0-100 estimate of viral potential.
-- `viral_hook_text`: max 8-10 words in Spanish, magnetic overlay for the first 3-5 seconds.
+- `viral_hook_text`: max 8-10 words in Spanish, magnetic overlay for the first 3-5 seconds that explains or teases the topic.
 - `why`: one sentence in Spanish, max 20 words, naming what makes THIS moment worth a clip.
 
 TRANSCRIPT_LANGUAGE: {language} (Translate and write all output copy in Spanish)

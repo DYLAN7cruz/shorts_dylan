@@ -27,31 +27,35 @@ def lookup_model_prices(model_name):
     return MODEL_PRICES[best_key] if best_key else None
 
 
-def clip_count_targets(n_windows):
-    """How many clips to ask the detail pass for, given the shortlist size.
+def clip_count_targets(n_windows, video_duration=None):
+    """How many clips to ask the detail pass for, given the shortlist size and video duration.
+    Scales dynamically to deliver a rich set of standalone viral clips:
+    - 5 to 10 min: 5 to 8 clips
+    - 15 to 30 min: 10 to 15 clips
+    - 45 to 60+ min: 18 to 26 clips
 
-    Measured on prod 3-ago-2026: 408 of 429 jobs (95%) delivered 3 clips or
-    fewer, the mode being ONE, while the prompt was free to return one per
-    shortlisted window. Users who received 1-3 clips came back a second day
-    0.4% of the time; those who received 4-9 came back 16.1% — so the clip
-    count, not the clip quality, is what the retention curve hangs on.
-
-    The old prompt biased hard the other way ("prefer one great clip per
-    candidate window") and handed the model two unbounded licences to drop
-    clips (the 2-second rule and STANDS ALONE both end in "or skip it"), with
-    no floor to stop it collapsing to a single clip. This puts a floor and a
-    realistic ceiling on it instead.
-
-    ``CLIP_TARGET_MIN`` / ``CLIP_TARGET_MAX`` override both for A/B runs
-    without a deploy (the reframe-testing harness drives them).
+    ``CLIP_TARGET_MIN`` / ``CLIP_TARGET_MAX`` override both if set via env.
     """
     import os
 
     n = max(1, int(n_windows or 1))
-    # Floor grows with the material: 3 windows -> 4, 5 -> 6, 8+ -> 8.
-    low = max(4, min(10, n // 2 + 3))
-    # Ceiling allows a rich window to yield more than one without inviting padding.
-    high = min(15, max(6, n * 2))
+    if video_duration:
+        try:
+            mins = max(1.0, float(video_duration) / 60.0)
+            # 10 min -> low 5, high 8
+            # 30 min -> low 11, high 16
+            # 60 min -> low 20, high 28
+            low = max(4, int(round(mins * 0.32 + 2)))
+            high = max(low + 2, int(round(mins * 0.44 + 4)))
+            low = min(low, 26)
+            high = min(high, 35)
+        except (TypeError, ValueError):
+            low = max(5, min(22, n // 2 + 3))
+            high = min(32, max(8, int(n * 1.6)))
+    else:
+        low = max(5, min(22, n // 2 + 3))
+        high = min(32, max(8, int(n * 1.6)))
+
     low = min(low, high)
 
     def _override(name, current):
@@ -71,15 +75,17 @@ def clip_count_targets(n_windows):
 def shortlist_target(video_duration):
     """How many scored windows the detail pass should get.
 
-    Scales with duration so a long video surfaces more candidates without
-    exploding the detail call, floored at 3 so a short one still gets a
-    choice. ``score_batches`` exists to make this number reachable.
+    Scales proportionally with video duration:
+    - 5-10 min: 10-15 candidate windows
+    - 20-30 min: 22-30 candidate windows
+    - 45-60 min: 40-55 candidate windows
     """
     try:
         seconds = float(video_duration or 0)
     except (TypeError, ValueError):
         seconds = 0.0
-    return max(5, min(15, int(seconds // 60) + 3))
+    minutes = max(1.0, seconds / 60.0)
+    return max(8, min(60, int(round(minutes * 0.75 + 6))))
 
 
 def score_batches(windows, batch_size):
@@ -283,18 +289,9 @@ def build_transcript_windows(transcript_result, video_duration,
     return windows
 
 
-def dedupe_overlapping(shorts, ratio=0.40):
+def dedupe_overlapping(shorts, ratio=0.55):
     """Drop clips that overlap an already-kept clip by ``ratio`` of the
     shorter one, keeping the higher ``predicted_score`` (earlier on a tie).
-
-    0.25, not 0.5: two clips sharing 25 s of 59 s (42%) both survived the old
-    bar and the same punchline came out twice in one batch.
-
-    The detail prompt's DIVERSITY rule is the only thing that stopped two
-    clips from sharing the same seconds, and a rule is not a guarantee: two
-    picks from one window can cover the same moment with different edges,
-    and the user then downloads the same short twice. Survivors come back in
-    transcript order, like ``trim_to_best``.
     """
     def _score(c):
         try:
@@ -325,14 +322,20 @@ def dedupe_overlapping(shorts, ratio=0.40):
     return [c for _, c in sorted(kept, key=lambda p: p[0])]
 
 
+DISCOURSE_CONNECTORS = {
+    "y", "e", "entonces", "pero", "bueno", "pues", "o sea", "osea",
+    "así", "asi", "después", "despues", "luego", "porque", "por eso",
+    "además", "ademas", "también", "tambien", "so", "and", "but", "then"
+}
+
+
 def snap_clip_to_words(start, end, words, video_duration,
                        min_duration=15.0, max_duration=60.0,
-                       search_window=1.5, max_lead=0.35, max_tail=0.45):
+                       search_window=2.0, max_lead=0.35, max_tail=0.45):
     """
     Snap Gemini-proposed clip boundaries onto real word boundaries plus a bit
-    of the surrounding silence. LLMs are bad at millisecond arithmetic; the
-    word-level timestamps are ground truth, so cuts land in pauses instead of
-    mid-word.
+    of the surrounding silence. Also cleans up weak discourse connectors
+    at the start so the clip opens with complete logical clarity.
 
     words: [{'w','s','e'}, ...] for the whole video, sorted by start.
     Returns (start, end); falls back to the input if no words are nearby or
@@ -345,11 +348,22 @@ def snap_clip_to_words(start, end, words, video_duration,
     starts = [float(w.get("s", 0)) for w in words]
     ends = [float(w.get("e", 0)) for w in words]
 
-    # START: snap to the nearest word start, then lead into the silence before it.
+    # START: snap to the nearest word start, avoiding dangling connectors
     new_start = float(start)
     candidates = [s for s in starts if abs(s - new_start) <= search_window]
     if candidates:
         word_start = min(candidates, key=lambda s: abs(s - new_start))
+        best_idx = starts.index(word_start)
+
+        # If snapped word is a weak connector ("entonces", "y", "bueno") and next word is immediate,
+        # advance past it so the audio opens on the actual subject/action
+        w_text = str(words[best_idx].get("w", "")).strip().lower().rstrip(",.?!:;")
+        if w_text in DISCOURSE_CONNECTORS and best_idx + 1 < len(words):
+            next_start = starts[best_idx + 1]
+            if next_start - ends[best_idx] <= 0.35:
+                word_start = next_start
+                best_idx += 1
+
         prev_ends = [e for e in ends if e <= word_start]
         if prev_ends:
             gap = max(0.0, word_start - max(prev_ends))

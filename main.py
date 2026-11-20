@@ -2353,7 +2353,7 @@ def get_viral_clips(transcript_result, video_duration, viewer_clips=None):
         print(f"   Shortlisted {len(shortlist)} window(s) for detail.")
 
         # --- Pass 2: detailed clip extraction on the shortlist ---
-        min_clips, max_clips = clip_count_targets(len(shortlist))
+        min_clips, max_clips = clip_count_targets(len(shortlist), video_duration=video_duration)
 
         def _detail_prompt_for(lo, hi):
             # A split batch keeps the full clip-count band: a short list can

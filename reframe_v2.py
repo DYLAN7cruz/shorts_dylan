@@ -107,27 +107,31 @@ def scene_frame_ranges(scene_boundaries, strategies, total_frames):
     if not ranges:
         return []
 
-    # 1. Check if a single dominant strategy covers >= 70% of frames
-    # and there are no complex multi-camera layouts (SPLIT, INSET, SCREENCAST).
+    # 1. If there are no complex multi-camera layouts (SPLIT, INSET, SCREENCAST),
+    # unify the entire clip into a SINGLE stable strategy (GENERAL or TRACK).
+    # This prevents jarring layout flipping, camera jumps, and multi-segment concat freezes.
     complex_strats = {'SPLIT', 'INSET', 'SCREENCAST'}
     has_complex = any(strat in complex_strats for _, _, strat in ranges)
     if not has_complex:
         strat_durations = {}
         for s, e, strat in ranges:
             strat_durations[strat] = strat_durations.get(strat, 0) + (e - s)
-        total_d = sum(strat_durations.values())
-        if total_d > 0:
-            dominant_strat, dominant_frames = max(strat_durations.items(), key=lambda item: item[1])
-            if dominant_frames / total_d >= 0.70:
-                # Unify the whole clip into a single smooth range with the dominant strategy
-                return [(0, total_frames, dominant_strat)]
 
-    # 2. Otherwise, merge adjacent ranges that share the same strategy
+        # If GENERAL is present (gaming, landscape, b-roll, screencast), prefer GENERAL
+        # so the full video is cleanly displayed without erratic camera pans or face tracking.
+        if strat_durations.get('GENERAL', 0) > 0:
+            dominant_strat = 'GENERAL'
+        else:
+            dominant_strat = max(strat_durations.items(), key=lambda item: item[1])[0]
+
+        return [(0, total_frames, dominant_strat)]
+
+    # 2. Otherwise, merge adjacent ranges that share the same strategy (allowing <= 2 frame boundary tolerance)
     merged = [ranges[0]]
     for start, end, strat in ranges[1:]:
         p_start, p_end, p_strat = merged[-1]
-        if strat == p_strat and start == p_end:
-            merged[-1] = (p_start, end, strat)
+        if strat == p_strat and start <= p_end + 2:
+            merged[-1] = (p_start, max(end, p_end), strat)
         else:
             merged.append((start, end, strat))
     return merged
@@ -681,14 +685,20 @@ def encode_scenes(input_video, specs, orig_w, orig_h, out_w, out_h, fps,
             f.write(concat_list_content(segments))
         video_in = ["-f", "concat", "-safe", "0", "-i", list_path]
 
-    # Video (stream copy) + audio straight from the clip.
-    # -shortest ensures playback never hangs/freezes on the last frame if video/audio lengths differ slightly.
+    # Video (stream copy or safe re-encode) + audio straight from the clip.
+    # When concatenating multiple segments, re-encode video with libx264 instead of stream copy
+    # to guarantee 100% monotonic PTS and eliminate browser decoder freezes at segment seams.
+    video_codec_args = (
+        ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "192k"]
+        if (video_in and "-f" in video_in)
+        else ["-c:v", "copy", "-c:a", "copy"]
+    )
     _run([
         "ffmpeg", "-y", "-loglevel", "error",
         *video_in,
         "-i", input_video,
         "-map", "0:v:0", "-map", "1:a:0?",
-        "-c:v", "copy", "-c:a", "copy", *METADATA_SCRUB,
+        *video_codec_args, *METADATA_SCRUB,
         "-shortest",
         "-avoid_negative_ts", "make_zero",
         # +faststart moves the moov atom to the front so the browser <video>

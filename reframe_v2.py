@@ -552,7 +552,9 @@ def _run_segment(input_video, ss, dur, extra_inputs, graph, out_label, seg_path)
             "-ss", f"{ss:.4f}", "-t", f"{dur:.4f}",
             *gpu_decode.input_args(on_gpu), "-i", input_video, *extra_inputs,
             "-filter_complex", gpu_decode.graph(graph, on_gpu), "-map", out_label,
-            *video_encode_args(QUALITY_FAST), "-an", seg_path,
+            *video_encode_args(QUALITY_FAST), "-an",
+            "-avoid_negative_ts", "make_zero",
+            seg_path,
         ]
 
     def runner(cmd):

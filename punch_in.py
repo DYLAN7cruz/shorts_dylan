@@ -23,7 +23,7 @@ import os
 
 import numpy as np
 
-ENABLED = os.environ.get("PUNCH_IN", "1") == "1"
+ENABLED = os.environ.get("PUNCH_IN", "0") == "1"
 
 # Peak zoom. 1.15 crops ~13% off each dimension: clear dynamic camera intent
 MAX_ZOOM = float(os.environ.get("PUNCH_IN_ZOOM", "1.15"))

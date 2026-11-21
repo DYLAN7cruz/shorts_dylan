@@ -328,18 +328,44 @@ DISCOURSE_CONNECTORS = {
     "además", "ademas", "también", "tambien", "so", "and", "but", "then"
 }
 
+SENTENCE_END_PUNCT = ('.', '?', '!', '...', '…', '?!', '!?')
+
+
+def is_sentence_ender(word_dict, next_word_dict=None):
+    text = str(word_dict.get("w", "")).strip()
+    if text.endswith(SENTENCE_END_PUNCT):
+        return True
+    if next_word_dict:
+        gap = float(next_word_dict.get("s", 0)) - float(word_dict.get("e", 0))
+        if gap >= 0.38:
+            return True
+    return False
+
+
+def is_sentence_starter(words, idx):
+    if idx == 0:
+        return True
+    prev = words[idx - 1]
+    curr = words[idx]
+    if is_sentence_ender(prev, curr):
+        return True
+    gap = float(curr.get("s", 0)) - float(prev.get("e", 0))
+    if gap >= 0.38:
+        return True
+    return False
+
 
 def snap_clip_to_words(start, end, words, video_duration,
                        min_duration=15.0, max_duration=60.0,
                        search_window=2.0, max_lead=0.35, max_tail=0.45):
     """
-    Snap Gemini-proposed clip boundaries onto real word boundaries plus a bit
-    of the surrounding silence. Also cleans up weak discourse connectors
-    at the start so the clip opens with complete logical clarity.
-
-    words: [{'w','s','e'}, ...] for the whole video, sorted by start.
-    Returns (start, end); falls back to the input if no words are nearby or
-    snapping cannot satisfy the duration bounds.
+    Snap Gemini-proposed clip boundaries onto real sentence and word boundaries.
+    Prioritizes complete grammatical thoughts:
+    - Starts on a true sentence opener (after punctuation or natural pause),
+      cleaning up weak discourse connectors ("y", "bueno", "entonces").
+    - Ends on a complete sentence conclusion (punctuation or pause), preventing
+      abrupt mid-sentence cuts.
+    - Smoothly pads into surrounding silence without bleeding adjacent words.
     """
     original = (round(float(start), 3), round(float(end), 3))
     if not words:
@@ -347,58 +373,97 @@ def snap_clip_to_words(start, end, words, video_duration,
 
     starts = [float(w.get("s", 0)) for w in words]
     ends = [float(w.get("e", 0)) for w in words]
-
-    # START: snap to the nearest word start, avoiding dangling connectors
     new_start = float(start)
-    candidates = [s for s in starts if abs(s - new_start) <= search_window]
-    if candidates:
-        word_start = min(candidates, key=lambda s: abs(s - new_start))
-        best_idx = starts.index(word_start)
-
-        # If snapped word is a weak connector ("entonces", "y", "bueno") and next word is immediate,
-        # advance past it so the audio opens on the actual subject/action
-        w_text = str(words[best_idx].get("w", "")).strip().lower().rstrip(",.?!:;")
-        if w_text in DISCOURSE_CONNECTORS and best_idx + 1 < len(words):
-            next_start = starts[best_idx + 1]
-            if next_start - ends[best_idx] <= 0.35:
-                word_start = next_start
-                best_idx += 1
-
-        prev_ends = [e for e in ends if e <= word_start]
-        if prev_ends:
-            gap = max(0.0, word_start - max(prev_ends))
-            lead = min(max_lead, gap / 2)
-        else:
-            lead = max_lead
-        new_start = max(0.0, word_start - lead)
-
-    # END: snap to the nearest word end, then trail into the silence after it.
     new_end = float(end)
-    candidates = [e for e in ends if abs(e - new_end) <= search_window]
-    if candidates:
-        word_end = min(candidates, key=lambda e: abs(e - new_end))
-        next_starts = [s for s in starts if s >= word_end]
-        if next_starts:
-            gap = max(0.0, min(next_starts) - word_end)
-            tail = min(max_tail, gap / 2)
-        else:
-            tail = max_tail
-        new_end = min(float(video_duration), word_end + tail)
 
-    # Repair duration bounds while staying on word boundaries.
-    if new_end - new_start < min_duration:
-        target = new_start + min_duration
-        later = sorted(e for e in ends if e >= target)
-        if later and later[0] - new_start <= max_duration:
-            new_end = min(float(video_duration), later[0] + 0.2)
+    # 1. START: Find the best sentence starter near new_start
+    # Check within search_window (expand up to 3.5s for sentence boundaries)
+    window_s = max(search_window, 3.5)
+    nearby_start = [i for i, s in enumerate(starts) if abs(s - new_start) <= window_s]
+    if not nearby_start:
+        candidates = [i for i, s in enumerate(starts) if abs(s - new_start) <= search_window]
+        if not candidates:
+            return original
+        best_start_idx = min(candidates, key=lambda i: abs(starts[i] - new_start))
+    else:
+        starters = [i for i in nearby_start if is_sentence_starter(words, i)]
+        if starters:
+            best_start_idx = min(starters, key=lambda i: abs(starts[i] - new_start))
+        else:
+            best_start_idx = min(nearby_start, key=lambda i: abs(starts[i] - new_start))
+
+    # Guard: if best_start_idx landed on a word that ends a sentence (e.g. 'radio!'),
+    # advance to the next word so we don't open on the tail of a previous thought
+    if is_sentence_ender(words[best_start_idx]) and best_start_idx + 1 < len(words):
+        if starts[best_start_idx + 1] - new_start <= 3.0:
+            best_start_idx += 1
+
+    # Advance past weak discourse connectors ("entonces", "y", "bueno", "o sea")
+    while best_start_idx < len(words) - 1:
+        w_text = str(words[best_start_idx].get("w", "")).strip().lower().rstrip(",.?!:;")
+        if w_text in DISCOURSE_CONNECTORS and (starts[best_start_idx + 1] - ends[best_start_idx] < 0.35):
+            best_start_idx += 1
+        else:
+            break
+
+    word_start = starts[best_start_idx]
+    prev_ends = [e for e in ends if e <= word_start]
+    gap_before = max(0.0, word_start - max(prev_ends)) if prev_ends else max_lead
+    lead = min(max_lead, gap_before / 2)
+    snapped_start = max(0.0, word_start - lead)
+
+    # 2. END: Find the best sentence ender near new_end
+    # Look around new_end (e.g. -3.5s to +3.5s) for a clean sentence conclusion
+    window_e = max(search_window, 3.5)
+    candidates_end = [
+        j for j in range(best_start_idx, len(words))
+        if abs(ends[j] - new_end) <= window_e and (min_duration - 1.0 <= ends[j] - snapped_start <= max_duration + 0.5)
+    ]
+
+    best_end_idx = None
+    if candidates_end:
+        enders = [j for j in candidates_end if is_sentence_ender(words[j], words[j+1] if j+1 < len(words) else None)]
+        if enders:
+            best_end_idx = min(enders, key=lambda j: abs(ends[j] - new_end))
+        else:
+            best_end_idx = min(candidates_end, key=lambda j: abs(ends[j] - new_end))
+    else:
+        raw_candidates = [i for i, e in enumerate(ends) if abs(e - new_end) <= search_window]
+        if raw_candidates:
+            best_end_idx = min(raw_candidates, key=lambda i: abs(ends[i] - new_end))
+        else:
+            valid = [j for j in range(best_start_idx, len(words)) if ends[j] - snapped_start <= max_duration]
+            best_end_idx = valid[-1] if valid else len(words) - 1
+
+    word_end = ends[best_end_idx]
+    next_starts = [s for s in starts if s >= word_end]
+    gap_after = max(0.0, min(next_starts) - word_end) if next_starts else max_tail
+    tail = min(max_tail, gap_after / 2)
+    snapped_end = min(float(video_duration), word_end + tail)
+
+    # 3. ENFORCE DURATION CONSTRAINTS
+    if snapped_end - snapped_start < min_duration:
+        target = snapped_start + min_duration
+        later = [e for e in ends if e >= target]
+        if later and later[0] - snapped_start <= max_duration:
+            next_s = [s for s in starts if s >= later[0]]
+            gap = max(0.0, min(next_s) - later[0]) if next_s else max_tail
+            snapped_end = min(float(video_duration), later[0] + min(max_tail, gap / 2))
         else:
             return original
-    if new_end - new_start > max_duration:
-        target = new_start + max_duration
-        earlier = [e for e in ends if new_start < e <= target]
-        new_end = (max(earlier) + 0.2) if earlier else target
-        new_end = min(new_end, new_start + max_duration, float(video_duration))
 
-    if new_end <= new_start or new_end - new_start < min_duration:
+    if snapped_end - snapped_start > max_duration:
+        target = snapped_start + max_duration
+        earlier = [e for e in ends if snapped_start < e <= target]
+        if earlier:
+            chosen_e = max(earlier)
+            next_s = [s for s in starts if s >= chosen_e]
+            gap = max(0.0, min(next_s) - chosen_e) if next_s else max_tail
+            snapped_end = min(chosen_e + min(max_tail, gap / 2), snapped_start + max_duration, float(video_duration))
+        else:
+            snapped_end = min(snapped_start + max_duration, float(video_duration))
+
+    if snapped_end <= snapped_start or snapped_end - snapped_start < min_duration:
         return original
-    return (round(new_start, 3), round(new_end, 3))
+
+    return (round(snapped_start, 3), round(snapped_end, 3))

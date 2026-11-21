@@ -103,7 +103,34 @@ def scene_frame_ranges(scene_boundaries, strategies, total_frames):
         end_f = max(start_f, min(end_f, total_frames))
         if end_f > start_f:
             ranges.append((start_f, end_f, strategy))
-    return ranges
+
+    if not ranges:
+        return []
+
+    # 1. Check if a single dominant strategy covers >= 70% of frames
+    # and there are no complex multi-camera layouts (SPLIT, INSET, SCREENCAST).
+    complex_strats = {'SPLIT', 'INSET', 'SCREENCAST'}
+    has_complex = any(strat in complex_strats for _, _, strat in ranges)
+    if not has_complex:
+        strat_durations = {}
+        for s, e, strat in ranges:
+            strat_durations[strat] = strat_durations.get(strat, 0) + (e - s)
+        total_d = sum(strat_durations.values())
+        if total_d > 0:
+            dominant_strat, dominant_frames = max(strat_durations.items(), key=lambda item: item[1])
+            if dominant_frames / total_d >= 0.70:
+                # Unify the whole clip into a single smooth range with the dominant strategy
+                return [(0, total_frames, dominant_strat)]
+
+    # 2. Otherwise, merge adjacent ranges that share the same strategy
+    merged = [ranges[0]]
+    for start, end, strat in ranges[1:]:
+        p_start, p_end, p_strat = merged[-1]
+        if strat == p_strat and start == p_end:
+            merged[-1] = (p_start, end, strat)
+        else:
+            merged.append((start, end, strat))
+    return merged
 
 
 def concat_list_content(segment_paths):
@@ -610,6 +637,34 @@ def encode_scenes(input_video, specs, orig_w, orig_h, out_w, out_h, fps,
             video_in = ["-i", gpu_out]
 
     if video_in is None:
+        if len(specs) == 1:
+            # DIRECT SINGLE-PASS: 0 segment files, 0 concat seams, 0 PTS freezes, 100% audio-video sync!
+            ss, dur, graph, _boxes = specs[0]
+            extra, out_label = [], "[v]"
+            if logo:
+                extra = ["-i", logo]
+                graph += ";" + m.watermark_filter(out_w, out_h, video="[v]", out="[vw]")
+                out_label = "[vw]"
+            cmd = [
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-ss", f"{ss:.4f}",
+                "-t", f"{dur:.4f}",
+                "-i", input_video,
+                *extra,
+                "-filter_complex", graph,
+                "-map", out_label,
+                "-map", "0:a:0?",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                "-c:a", "aac", "-b:a", "192k",
+                *METADATA_SCRUB,
+                "-shortest",
+                "-avoid_negative_ts", "make_zero",
+                "-movflags", "+faststart",
+                final_output_video,
+            ]
+            _run(cmd)
+            return
+
         segments = []
         for idx, (ss, dur, graph, _boxes) in enumerate(specs):
             seg_path = os.path.join(workdir, f"seg_{idx:03d}.mp4")

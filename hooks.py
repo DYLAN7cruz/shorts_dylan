@@ -655,6 +655,7 @@ def _overlay_graph(x, y, duration):
 
 def _encode_tail():
     return ['-c:a', 'copy', *video_encode_args(QUALITY), *METADATA_SCRUB,
+            '-shortest', '-avoid_negative_ts', 'make_zero',
             '-movflags', '+faststart']
 
 

@@ -956,10 +956,22 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         onPlay && onPlay(clip.start + currentTime);
                     }}
                     onPause={() => onPause && onPause()}
+                    onWaiting={() => {
+                        // Smooth recovery if player temporarily stalls on buffer/stream boundary
+                        if (videoRef.current && hasPlayed) {
+                            setTimeout(() => {
+                                if (videoRef.current && videoRef.current.paused) {
+                                    const p = videoRef.current.play();
+                                    if (p && typeof p.catch === 'function') p.catch(() => {});
+                                }
+                            }, 400);
+                        }
+                    }}
                     onEnded={() => {
                         if (videoRef.current) {
                             videoRef.current.currentTime = 0;
-                            videoRef.current.play();
+                            const p = videoRef.current.play();
+                            if (p && typeof p.catch === 'function') p.catch(() => {});
                         }
                     }}
                 />

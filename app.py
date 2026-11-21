@@ -8918,6 +8918,8 @@ async def mask_facecam(req: FacecamMaskRequest, request: Request):
         "-filter_complex" if "[0:v]" in vf else "-vf", vf,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
         "-c:a", "copy",
+        "-shortest", "-avoid_negative_ts", "make_zero",
+        "-movflags", "+faststart",
         out_path
     ]
 
@@ -9089,6 +9091,8 @@ async def streamer_split_clip(req: StreamerSplitRequest, request: Request):
             "-map", "[v]", "-map", "0:a?",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
             "-c:a", "copy",
+            "-shortest", "-avoid_negative_ts", "make_zero",
+            "-movflags", "+faststart",
             out_path
         ]
 
@@ -9564,6 +9568,25 @@ async def translate_clip_metadata(req: TranslateMetadataRequest, request: Reques
     orig_hook = (clip.get('auto_hook') or {}).get('text') or clip.get('viral_hook_text') or ""
     orig_why = clip.get('why') or ""
 
+    clip_start = float(clip.get('start', 0.0))
+    clip_end = float(clip.get('end', 0.0))
+    transcript_data = data.get('transcript') or {}
+    dialogue_words = []
+    if isinstance(transcript_data, dict):
+        for seg in transcript_data.get('segments', []):
+            words = seg.get('words') or []
+            if words:
+                for w in words:
+                    w_s = float(w.get('start', 0.0))
+                    if clip_start - 1.0 <= w_s <= clip_end + 1.0:
+                        dialogue_words.append(w.get('word', ''))
+            else:
+                seg_s = float(seg.get('start', 0.0))
+                seg_e = float(seg.get('end', 0.0))
+                if not (seg_e < clip_start or seg_s > clip_end):
+                    dialogue_words.append(seg.get('text', ''))
+    dialogue_context = " ".join(dialogue_words).strip()[:1200]
+
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY no está configurada en el servidor.")
@@ -9571,18 +9594,21 @@ async def translate_clip_metadata(req: TranslateMetadataRequest, request: Reques
     model_name = os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite"
 
     prompt = (
-        f"Eres un experto en crecimiento de canales de YouTube Shorts, TikTok e Instagram Reels en español.\n"
-        f"Tu tarea es traducir y adaptar los siguientes metadatos de un clip en inglés a un español sumamente atractivo, viral y natural.\n\n"
-        f"Directrices:\n"
-        f"1. Título (YouTube Short): Máximo 60 caracteres, clickeable, genera alta curiosidad o sorpresa, incluye 1 o 2 emojis relevantes.\n"
-        f"2. Descripción (TikTok/Instagram): 1-2 frases enganchadoras, llamado a la acción para comentar y 4-6 hashtags populares en español (#Shorts, #Gaming, #Viral, etc.).\n"
-        f"3. Gancho Viral (Hook para los primeros 3-5 segundos): Frase muy breve y potente para poner como texto en el video (ejemplo estilo 'POV:' o advertencia impactante).\n"
-        f"4. Razón (Why): Breve explicación de por qué este momento es viral en 1 frase en español.\n\n"
-        f"Contenido original:\n"
-        f"Título actual: {orig_title}\n"
-        f"Descripción actual: {orig_desc}\n"
-        f"Gancho actual: {orig_hook}\n"
-        f"Por qué se eligió: {orig_why}\n\n"
+        f"Eres un experto editor, copywriter y localizador de contenido viral para YouTube Shorts, TikTok e Instagram Reels en español.\n"
+        f"Tu misión es adaptar y traducir creativamente los metadatos de este clip para que tengan 100% DE SENTIDO, máxima naturalidad y un enorme impacto viral.\n\n"
+        f"REGLAS CRÍTICAS DE TRADUCCIÓN Y SENTIDO:\n"
+        f"1. PROHIBIDA LA TRADUCCIÓN LITERAL PALABRA POR PALABRA: Si una frase traducida literal suena extraña, robótica o sin gracia, adáptala a cómo hablaría un streamer o creador hispanohablante nativo (estilo streamers populares: Ibai, Auron, Rubius).\n"
+        f"2. COHERENCIA CON LO QUE PASA EN EL VIDEO: Lee el diálogo real del clip para entender la broma, el truco, el susto o la jugada. Asegúrate de que el título y el gancho describan exactamente esa situación real y no algo inventado o descontextualizado.\n"
+        f"3. GANCHO VIRAL (Hook para los primeros 3 segundos): Frase corta (máximo 6 a 8 palabras) en español súper magnética, impactante o intrigante (ej. '¡No hagas esto nunca en GTA 6!', 'El truco secreto que nadie vio', 'POV: cuando sale todo mal').\n"
+        f"4. TÍTULO (YouTube Short): Clickeable, genera curiosidad o emoción inmediata, máximo 70 caracteres, con 1 o 2 emojis llamativos.\n"
+        f"5. DESCRIPCIÓN (TikTok/Instagram): 1-2 frases fluidas que despierten comentarios + llamado a la acción + 4-6 hashtags virales en español (#Shorts, #Gaming, #Viral, etc.).\n"
+        f"6. RAZÓN (Why): 1 frase concisa explicando por qué este momento entretiene o engancha.\n\n"
+        f"CONTEXTO DEL CLIP:\n"
+        f"- Diálogo / Transcripción real en este momento: {dialogue_context or 'No disponible'}\n"
+        f"- Título actual: {orig_title}\n"
+        f"- Gancho actual: {orig_hook}\n"
+        f"- Descripción actual: {orig_desc}\n"
+        f"- Razón actual: {orig_why}\n\n"
         f"Responde estrictamente en formato JSON con las claves exactas: 'title', 'description', 'hook', 'why'."
     )
 
@@ -9659,9 +9685,14 @@ async def translate_single_hook(req: TranslateHookRequest, request: Request):
     model_name = os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite"
 
     prompt = (
-        f"Eres un experto en ganchos virales para TikTok y Reels.\n"
-        f"Traduce o adapta este gancho en inglés a una frase viral en español corta, impactante y magnética (máximo 8-10 palabras, ideal estilo POV o frase intrigante):\n"
+        f"Eres un experto en ganchos virales (hooks) para TikTok, Reels y Shorts en español.\n"
+        f"Tu tarea es adaptar este gancho al español más natural, impactante y magnético posible:\n"
         f"'{req.text}'\n\n"
+        f"REGLAS:\n"
+        f"- NUNCA hagas traducción literal si no tiene sentido o suena forzada.\n"
+        f"- Haz que suene 100% natural, entretenido y fluido para el público hispanohablante.\n"
+        f"- Longitud: Entre 4 y 8 palabras máximo.\n"
+        f"- Debe captar la curiosidad o impacto en los primeros 2 segundos.\n\n"
         f"Responde en JSON con la clave 'hook'."
     )
     def run_hook_trans():

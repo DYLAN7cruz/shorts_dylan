@@ -838,6 +838,7 @@ def burn_subtitles(video_path, srt_path, output_path, alignment=2, fontsize=16,
                           bg_color=bg_color, bg_opacity=bg_opacity, y_offset=y_offset)
 
     tail = ['-c:a', 'copy', *video_encode_args(QUALITY), *METADATA_SCRUB,
+            '-shortest', '-avoid_negative_ts', 'make_zero',
             '-movflags', '+faststart']
     outputs = [output_path]
     size = _video_size(video_path) if mark else None

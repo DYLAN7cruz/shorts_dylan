@@ -625,12 +625,15 @@ def encode_scenes(input_video, specs, orig_w, orig_h, out_w, out_h, fps,
         video_in = ["-f", "concat", "-safe", "0", "-i", list_path]
 
     # Video (stream copy) + audio straight from the clip.
+    # -shortest ensures playback never hangs/freezes on the last frame if video/audio lengths differ slightly.
     _run([
         "ffmpeg", "-y", "-loglevel", "error",
         *video_in,
         "-i", input_video,
         "-map", "0:v:0", "-map", "1:a:0?",
         "-c:v", "copy", "-c:a", "copy", *METADATA_SCRUB,
+        "-shortest",
+        "-avoid_negative_ts", "make_zero",
         # +faststart moves the moov atom to the front so the browser <video>
         # can start playing before the whole file downloads. Without it the
         # in-app preview spins forever (download still works) — the moov

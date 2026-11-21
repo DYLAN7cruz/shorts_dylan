@@ -332,11 +332,12 @@ HOOK PLAYBOOK — pick the strongest fitting viral pattern for `viral_hook_text`
 - Tutorial / Secreto: "Cómo conseguir armas secretas en GTA 6"
 
 COPY RULES — CRITICAL REQUIREMENT: ALL text fields (`video_title_for_youtube_short`, `video_description_for_tiktok`, `video_description_for_instagram`, `viral_hook_text`, `why`) MUST ALWAYS BE WRITTEN IN HIGH-IMPACT, NATURAL SPANISH (Español), even if the video transcript is in English or another language:
-- Adapt and translate ideas, punchlines, and gaming terms naturally for the Spanish-speaking audience.
+- ZERO LITERAL TRANSLATION: Never translate word-for-word if it sounds awkward, mechanical, or loses the joke. Understand the actual situation, joke, trick, or fail in the transcript and express it naturally in authentic creator Spanish (estilo streamers nativos hispanohablantes).
+- Contextual coherence: Ensure the hook, title, and description describe exactly what is happening in the clip, creating immediate curiosity without false promises.
 - Descriptions (TikTok + Instagram): 1-2 punchy sentences in Spanish that tease the payoff, plus 3-5 trending Spanish hashtags (#Gaming, #Shorts, #Viral, etc.).
-- `video_title_for_youtube_short`: max 100 chars in Spanish, click-worthy, curiosity-driven with 1-2 relevant emojis.
+- `video_title_for_youtube_short`: max 70 chars in Spanish, click-worthy, curiosity-driven with 1-2 relevant emojis.
 - `predicted_score`: honest 0-100 estimate of viral potential.
-- `viral_hook_text`: max 8-10 words in Spanish, magnetic overlay for the first 3-5 seconds that explains or teases the topic.
+- `viral_hook_text`: max 6-8 words in Spanish, magnetic overlay for the first 3-5 seconds that explains or teases the topic clearly.
 - `why`: one sentence in Spanish, max 20 words, naming what makes THIS moment worth a clip.
 
 TRANSCRIPT_LANGUAGE: {language} (Translate and write all output copy in Spanish)

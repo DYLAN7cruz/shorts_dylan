@@ -9714,6 +9714,248 @@ async def translate_single_hook(req: TranslateHookRequest, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class TranslateSubtitlesRequest(BaseModel):
+    job_id: str
+    clip_index: int
+    target_language: Optional[str] = "es"
+    burn: Optional[bool] = True
+
+@app.post("/api/clip/translate-subtitles")
+async def translate_clip_subtitles(req: TranslateSubtitlesRequest, request: Request):
+    """Translate clip captions to natural viral Spanish using Gemini and optionally re-burn them."""
+    await require_managed_entitlement(request)
+    await _ensure_job_files(req.job_id, request)
+    if req.job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = jobs[req.job_id]
+    await _assert_job_owner(request, job)
+    output_dir = os.path.join(OUTPUT_DIR, req.job_id)
+    json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+
+    with open(json_files[0], 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    clips = data.get('shorts', [])
+    if req.clip_index < 0 or req.clip_index >= len(clips):
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    clip = clips[req.clip_index]
+    transcript = data.get('transcript')
+    if not transcript:
+        raise HTTPException(status_code=400, detail="Transcript not found in metadata")
+
+    recipe_segments = (clip.get('recipe') or {}).get('segments')
+    if recipe_segments:
+        sub_transcript = recut.virtual_transcript(transcript, recipe_segments)
+        clip_start, clip_end = 0.0, recut.total_duration(recipe_segments)
+    else:
+        sub_transcript = transcript
+        clip_start = float(clip.get('start', 0.0))
+        clip_end = float(clip.get('end', 0.0))
+
+    # Check if clip has custom caption_words already
+    existing_words = clip.get('caption_words')
+    raw_words = []
+    if existing_words:
+        for w in existing_words:
+            w_text = w.get('word', '').strip()
+            if w_text:
+                raw_words.append({
+                    "word": w_text,
+                    "start": float(w.get('start', 0.0)),
+                    "end": float(w.get('end', 0.0)),
+                })
+    else:
+        for seg in sub_transcript.get('segments', []):
+            for w in seg.get('words', []):
+                w_s = float(w.get('start', 0.0))
+                w_e = float(w.get('end', 0.0))
+                if w_e > clip_start and w_s < clip_end:
+                    raw_words.append({
+                        "word": w.get('word', '').strip(),
+                        "start": max(0.0, w_s - clip_start),
+                        "end": max(0.0, w_e - clip_start),
+                    })
+
+    if not raw_words:
+        raise HTTPException(status_code=400, detail="No se encontraron subtítulos para este clip.")
+
+    # Group words into sentence / phrase units (by punctuation or gap >= 0.4s or max 12 words)
+    chunks = []
+    curr = []
+    for i, w in enumerate(raw_words):
+        curr.append(w)
+        ends_punc = any(w['word'].endswith(p) for p in ('.', '!', '?', ';', ':'))
+        pause = False
+        if i + 1 < len(raw_words):
+            if (raw_words[i+1]['start'] - w['end']) >= 0.4:
+                pause = True
+        if ends_punc or pause or len(curr) >= 12 or i == len(raw_words) - 1:
+            chunk_text = " ".join(x['word'] for x in curr).strip()
+            if chunk_text:
+                chunks.append({
+                    "id": len(chunks),
+                    "text": chunk_text,
+                    "start": curr[0]['start'],
+                    "end": curr[-1]['end'],
+                })
+            curr = []
+
+    if not chunks:
+        raise HTTPException(status_code=400, detail="No se pudieron agrupar palabras del subtítulo.")
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY no configurada.")
+    model_name = os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite"
+
+    chunks_payload = [{"id": c["id"], "text": c["text"]} for c in chunks]
+
+    prompt = (
+        f"Eres un experto subtitulador y traductor audiovisual para videos virales de TikTok, Reels y Shorts.\n"
+        f"Tu tarea es traducir las siguientes frases al ESPAÑOL de manera 100% NATURAL, coloquial, fluida y con sentido viral (cero lenguaje robótico o traducción literal tiesa).\n\n"
+        f"REGLAS OBLIGATORIAS:\n"
+        f"1. Devuelve EXACTAMENTE la misma cantidad de frases ({len(chunks)} frases), con el mismo 'id' (de 0 a {len(chunks)-1}).\n"
+        f"2. Conserva la naturalidad y brevedad: que la cantidad de palabras sea similar a la original para no alterar el ritmo de lectura visual.\n"
+        f"3. Si hay jerga, chistes o términos gamers (ej: 'no way', 'let's go', 'clutch', 'busted'), tradúcelos al lenguaje que diría un streamer o hispanohablante nativo (ej: 'no puede ser', 'vamos', 'épico', 'pillado').\n\n"
+        f"FRASES A TRADUCIR:\n"
+        f"{json.dumps(chunks_payload, ensure_ascii=False, indent=2)}\n\n"
+        f"Responde ÚNICAMENTE en JSON con el formato: {{\"translations\": [{{\"id\": 0, \"translation\": \"...\"}}, ...]}}"
+    )
+
+    def run_gemini():
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=api_key)
+        candidate_models = [
+            model_name,
+            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash-lite",
+            "gemini-flash-lite-latest",
+        ]
+        seen = set()
+        models = [m for m in candidate_models if not (m in seen or seen.add(m))]
+        last_err = None
+        for m in models:
+            for attempt in range(3):
+                try:
+                    resp = client.models.generate_content(
+                        model=m,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
+                    if resp and resp.text:
+                        return resp.text
+                except Exception as err:
+                    last_err = err
+                    print(f"⚠️ Gemini {m} attempt {attempt+1} failed: {err}")
+                    time.sleep(1.0 * (attempt + 1))
+        raise last_err or Exception("All Gemini models failed")
+
+    loop = asyncio.get_event_loop()
+    try:
+        raw_resp = await loop.run_in_executor(None, run_gemini)
+        parsed = json.loads(raw_resp)
+        translations_list = parsed.get("translations", [])
+    except Exception as e:
+        print(f"❌ Error traduciendo subtítulos con Gemini: {e}")
+        raise HTTPException(status_code=500, detail=f"Error traduciendo subtítulos: {str(e)}")
+
+    trans_map = {t["id"]: t["translation"] for t in translations_list if "id" in t and "translation" in t}
+
+    translated_words = []
+    remotion_captions = []
+
+    for c in chunks:
+        cid = c["id"]
+        trans_text = trans_map.get(cid, c["text"]).strip()
+        words_in_trans = trans_text.split()
+        if not words_in_trans:
+            continue
+        c_start = c["start"]
+        c_end = c["end"]
+        duration = max(0.2, c_end - c_start)
+        step = duration / len(words_in_trans)
+        for j, tw in enumerate(words_in_trans):
+            w_start = c_start + j * step
+            w_end = c_start + (j + 1) * step
+            translated_words.append({
+                "word": " " + tw,
+                "start": round(w_start, 3),
+                "end": round(w_end, 3),
+            })
+            remotion_captions.append({
+                "text": tw,
+                "startMs": int(round(w_start * 1000)),
+                "endMs": int(round(w_end * 1000)),
+            })
+
+    output_filename = None
+    if req.burn and translated_words:
+        sub_transcript = _words_transcript(translated_words, language=req.target_language or "es")
+        sub_start = 0.0
+        sub_end = sub_transcript["segments"][0]["end"]
+
+        filename = clip.get('video_url', '').split('/')[-1]
+        if not filename:
+            base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
+            filename = f"{base_name}_clip_{req.clip_index+1}.mp4"
+
+        clean_filename = await asyncio.to_thread(_strip_burned_captions, output_dir, filename)
+        input_path = os.path.join(output_dir, clean_filename)
+        if not os.path.exists(input_path):
+            input_path = os.path.join(output_dir, filename)
+
+        import subtitles
+        caption_style = dict(subtitles.AUTO_CAPTION_STYLE)
+        if clip.get('caption_style'):
+            caption_style.update(clip['caption_style'])
+
+        is_karaoke = (caption_style.get("style") or "karaoke") == "karaoke"
+        ext = "ass" if is_karaoke else "srt"
+        generation_id = int(time.time())
+        srt_filename = f"subs_{req.clip_index}_{generation_id}.{ext}"
+        srt_path = os.path.join(output_dir, srt_filename)
+        out_name = f"subtitled_{generation_id}_{clean_filename}"
+        output_path = os.path.join(output_dir, out_name)
+
+        seam_ranges = layout_ranges.split_ranges(
+            clip.get('layout_ranges') or layout_ranges.read(input_path))
+
+        success = await loop.run_in_executor(
+            None, _burn_caption_style, input_path, output_path, srt_path,
+            sub_transcript, sub_start, sub_end, caption_style, seam_ranges)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Error quemando subtítulos traducidos.")
+
+        output_filename = await _deliver(request, req.job_id, out_name)
+
+        if req.clip_index < len(job.get('result', {}).get('clips', [])):
+            job['result']['clips'][req.clip_index]['video_url'] = f"/videos/{req.job_id}/{output_filename}"
+
+        clip['video_url'] = f"/videos/{req.job_id}/{output_filename}"
+        clip['caption_words'] = sub_transcript["segments"][0]["words"]
+        clip['caption_style'] = caption_style
+        clips[req.clip_index] = clip
+        data['shorts'] = clips
+        try:
+            write_json_atomic(json_files[0], data, indent=4)
+        except Exception as e:
+            print(f"⚠️ Failed to write translated captions to metadata: {e}")
+
+        _archive_clip_edit_bg(req.job_id, req.clip_index, output_filename)
+
+    return {
+        "success": True,
+        "new_video_url": f"/videos/{req.job_id}/{output_filename}" if output_filename else None,
+        "captions": remotion_captions,
+        "text": " ".join(w["text"] for w in remotion_captions),
+    }
+
 class TranslateRequest(BaseModel):
     job_id: str
     clip_index: int

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sparkles } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import RemotionPreview from './RemotionPreview';
 import Modal from './ui/Modal';
@@ -212,6 +212,40 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
     }, [isOpen, jobId, clipIndex]);
 
     // When user edits text, redistribute words across original timestamps
+    const [isTranslatingSubs, setIsTranslatingSubs] = useState(false);
+
+    const handleTranslateToSpanish = async () => {
+        setIsTranslatingSubs(true);
+        try {
+            const res = await apiFetch('/api/clip/translate-subtitles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    job_id: jobId,
+                    clip_index: clipIndex,
+                    target_language: 'es',
+                    burn: false
+                })
+            });
+            if (!res.ok) {
+                let detail = 'Error traduciendo subtítulos';
+                try { detail = (await res.json()).detail; } catch {}
+                throw new Error(detail);
+            }
+            const data = await res.json();
+            if (data.captions && data.captions.length > 0) {
+                setCaptions(data.captions);
+                setEditableText(data.text || data.captions.map(c => c.text).join(' '));
+                setShowTextEditor(true);
+            }
+        } catch (e) {
+            console.error(e);
+            alert(e.message || 'Error al traducir subtítulos');
+        } finally {
+            setIsTranslatingSubs(false);
+        }
+    };
+
     const handleTextEdit = (newText) => {
         setEditableText(newText);
         const newWords = newText.split(/\s+/).filter(w => w.length > 0);
@@ -510,14 +544,26 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                         {/* Editable Transcript (collapsible) */}
                         {useRemotionPreview && (
                             <div>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowTextEditor(!showTextEditor)}
-                                    className="w-full flex items-center justify-between mb-2"
-                                >
-                                    <span className="eyebrow">Edit text ({captions.length} words)</span>
-                                    <span className={`text-muted transition-transform ${showTextEditor ? 'rotate-180' : ''}`}>▾</span>
-                                </button>
+                                <div className="w-full flex items-center justify-between mb-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowTextEditor(!showTextEditor)}
+                                        className="flex items-center gap-1.5"
+                                    >
+                                        <span className="eyebrow">Edit text ({captions.length} words)</span>
+                                        <span className={`text-muted transition-transform ${showTextEditor ? 'rotate-180' : ''}`}>▾</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleTranslateToSpanish}
+                                        disabled={isTranslatingSubs}
+                                        className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-input bg-brass/10 hover:bg-brass/20 text-brass font-medium border border-brass/30 transition-all disabled:opacity-40"
+                                        title="Traducir todas las frases a español neutro y conversacional con Gemini"
+                                    >
+                                        {isTranslatingSubs ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                                        {isTranslatingSubs ? 'Traduciendo...' : 'Traducir a español ✨'}
+                                    </button>
+                                </div>
                                 {showTextEditor && (
                                     <textarea
                                         value={editableText}

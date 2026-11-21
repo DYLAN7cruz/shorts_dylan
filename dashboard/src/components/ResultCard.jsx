@@ -249,6 +249,45 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     const [currentWhy, setCurrentWhy] = useState(clip.why || "");
     const [isTranslatingMeta, setIsTranslatingMeta] = useState(false);
     const [translatedNotice, setTranslatedNotice] = useState(false);
+    const [isTranslatingSubs, setIsTranslatingSubs] = useState(false);
+    const [translatedSubsNotice, setTranslatedSubsNotice] = useState(false);
+
+    const handleTranslateSubtitles = async () => {
+        setIsTranslatingSubs(true);
+        setEditError(null);
+        try {
+            const res = await apiFetch('/api/clip/translate-subtitles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    job_id: jobId,
+                    clip_index: index,
+                    target_language: 'es',
+                    burn: true
+                })
+            });
+            if (!res.ok) {
+                let detail = 'Error traduciendo subtítulos';
+                try { detail = (await res.json()).detail; } catch {}
+                throw new Error(detail);
+            }
+            const data = await res.json();
+            if (data.new_video_url) {
+                const serverUrl = getApiUrl(data.new_video_url);
+                setServerVideoFile(data.new_video_url.split('/').pop());
+                setActiveLayers({ subtitles: null, hook: null, effects: null });
+                setCurrentVideoUrl(serverUrl);
+                if (videoRef.current) videoRef.current.load();
+                setTranslatedSubsNotice(true);
+                setTimeout(() => setTranslatedSubsNotice(false), 4000);
+            }
+        } catch (e) {
+            setEditError(e.message);
+            setTimeout(() => setEditError(null), 5000);
+        } finally {
+            setIsTranslatingSubs(false);
+        }
+    };
 
     const handleTranslateMetadata = async () => {
         setIsTranslatingMeta(true);
@@ -1060,15 +1099,27 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 <div className="flex-1 min-h-0 space-y-2 mb-4">
                     <div className="flex items-center justify-between px-0.5">
                         <span className="eyebrow text-muted">METADATOS & TÍTULOS</span>
-                        <button
-                            onClick={handleTranslateMetadata}
-                            disabled={isTranslatingMeta}
-                            className="flex items-center gap-1.5 text-xs font-semibold text-brass hover:underline disabled:opacity-40 transition-all"
-                            title="Traducir y viralizar título, descripción y gancho a español con Gemini Pro"
-                        >
-                            {isTranslatingMeta ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                            {isTranslatingMeta ? 'traduciendo con ia…' : (translatedNotice ? '¡traducido a español! ✓' : 'traducir a español ✨')}
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={handleTranslateSubtitles}
+                                disabled={isTranslatingSubs}
+                                className="flex items-center gap-1.5 text-xs font-semibold text-brass hover:underline disabled:opacity-40 transition-all"
+                                title="Traducir y sincronizar subtítulos del video a español con 1 clic"
+                            >
+                                {isTranslatingSubs ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                                {isTranslatingSubs ? 'traduciendo subs…' : (translatedSubsNotice ? '¡subs traducidos! ✓' : 'traducir subtítulos ✨')}
+                            </button>
+                            <span className="text-muted text-xs">·</span>
+                            <button
+                                onClick={handleTranslateMetadata}
+                                disabled={isTranslatingMeta}
+                                className="flex items-center gap-1.5 text-xs font-semibold text-brass hover:underline disabled:opacity-40 transition-all"
+                                title="Traducir y viralizar título, descripción y gancho a español con Gemini Pro"
+                            >
+                                {isTranslatingMeta ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                                {isTranslatingMeta ? 'traduciendo copy…' : (translatedNotice ? '¡copy traducido! ✓' : 'traducir copy ✨')}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="bg-paper rounded-input px-3 py-2 border border-rule flex items-center gap-2 min-w-0 overflow-hidden">
@@ -1196,6 +1247,18 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                     >
                         {isSubtitling ? <Loader2 size={16} className="animate-spin text-brass shrink-0" /> : <Type size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />}
                         {isSubtitling ? 'adding…' : 'subtitles'}
+                    </button>
+
+                    <button
+                        onClick={handleTranslateSubtitles}
+                        disabled={isTranslatingSubs}
+                        className={`${QUIET_BTN} border-brass/40 bg-brass/5 hover:bg-brass/15`}
+                        title="Traducir automáticamente los subtítulos a español neutro y quemarlos en el video con 1 solo clic"
+                    >
+                        {isTranslatingSubs ? <Loader2 size={16} className="animate-spin text-brass shrink-0" /> : <Sparkles size={16} className="text-brass shrink-0" />}
+                        <span className="text-brass font-medium">
+                            {isTranslatingSubs ? 'traduciendo…' : (translatedSubsNotice ? '¡traducido! ✓' : 'traducir subs ✨')}
+                        </span>
                     </button>
 
                     <button

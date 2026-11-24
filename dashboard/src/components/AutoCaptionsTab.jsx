@@ -9,14 +9,14 @@ import { apiFetch } from '../lib/api';
 
 const VIRAL_PRESETS = [
     { 
-        id: 'hormozi', 
-        label: 'Hormozi Pop', 
+        id: 'lime', 
+        label: 'Lime Submagic', 
         font: 'Montserrat ExtraBold', 
         color: '#FFFFFF', 
-        highlight: '#FFE500', 
-        effect: 'pop', 
-        badge: 'Top Viral',
-        desc: 'Texto blanco con pop amarillo vibrante' 
+        highlight: '#A3FF12', 
+        effect: 'highlight', 
+        badge: 'Viral',
+        desc: 'Caja verde lima fluorescente enmarcando palabra' 
     },
     { 
         id: 'pill', 
@@ -29,16 +29,6 @@ const VIRAL_PRESETS = [
         desc: 'Caja púrpura redondeada en palabra activa' 
     },
     { 
-        id: 'lime', 
-        label: 'Lime Submagic', 
-        font: 'Montserrat ExtraBold', 
-        color: '#FFFFFF', 
-        highlight: '#A3FF12', 
-        effect: 'highlight', 
-        badge: 'Viral',
-        desc: 'Caja verde lima fluorescente de alto impacto' 
-    },
-    { 
         id: 'beast_yellow', 
         label: 'MrBeast Viral', 
         font: 'The Bold Font', 
@@ -47,6 +37,16 @@ const VIRAL_PRESETS = [
         effect: 'pop', 
         badge: 'YouTube',
         desc: 'Fuente ultra gruesa con pop amarillo clásica' 
+    },
+    { 
+        id: 'hormozi', 
+        label: 'Hormozi Pop', 
+        font: 'Montserrat ExtraBold', 
+        color: '#FFFFFF', 
+        highlight: '#FFE500', 
+        effect: 'pop', 
+        badge: 'Top Viral',
+        desc: 'Texto blanco con pop amarillo vibrante' 
     },
     { 
         id: 'gamer', 
@@ -102,10 +102,43 @@ const FONT_OPTIONS = [
     { value: 'Verdana', label: 'Verdana', category: 'Simple y Neutra' },
 ];
 
-const COLOR_PALETTE = [
-    '#FFFFFF', '#FFE500', '#FFDD00', '#A3FF12', '#00FF88', 
-    '#00FFFF', '#7C3AED', '#FF3366', '#FF4444', '#FF8800'
+// Colores rápidos para la caja / resalte de la palabra activa
+const HIGHLIGHT_COLOR_PRESETS = [
+    { name: 'Verde Lima', hex: '#A3FF12' },
+    { name: 'Amarillo Viral', hex: '#FFE500' },
+    { name: 'Púrpura CapCut', hex: '#7C3AED' },
+    { name: 'Cyan Neón', hex: '#00FFFF' },
+    { name: 'Rojo Fuego', hex: '#FF3333' },
+    { name: 'Naranja Flúor', hex: '#FF8800' },
+    { name: 'Rosa Neón', hex: '#FF3366' },
+    { name: 'Verde Gamer', hex: '#00FF88' },
+    { name: 'Azul Eléctrico', hex: '#2563EB' },
+    { name: 'Blanco Puro', hex: '#FFFFFF' },
 ];
+
+// Colores rápidos para el texto base
+const BASE_COLOR_PRESETS = [
+    { name: 'Blanco', hex: '#FFFFFF' },
+    { name: 'Amarillo', hex: '#FFE500' },
+    { name: 'Verde Lima', hex: '#A3FF12' },
+    { name: 'Cyan', hex: '#00FFFF' },
+    { name: 'Gris Claro', hex: '#E2E8F0' },
+    { name: 'Negro', hex: '#000000' },
+];
+
+/**
+ * Calcula si el texto sobre una caja de color debe ser negro o blanco
+ * según la luminosidad percibida (fórmula Rec. 601 idéntica al backend)
+ */
+function getContrastColor(hexColor) {
+    const hex = (hexColor || '').replace('#', '');
+    if (hex.length !== 6) return '#000000';
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return lum > 0.58 ? '#000000' : '#FFFFFF';
+}
 
 /**
  * Agrupa palabras en bloques de subtítulos cortos (1 línea)
@@ -167,7 +200,7 @@ export default function AutoCaptionsTab() {
     const [mode, setMode] = useState('file'); // 'file' | 'url'
     const [file, setFile] = useState(null);
     const [url, setUrl] = useState('');
-    const [selectedPreset, setSelectedPreset] = useState('hormozi');
+    const [selectedPreset, setSelectedPreset] = useState('lime');
     const [isProcessing, setIsProcessing] = useState(false);
     const [processingStep, setProcessingStep] = useState('');
     const [error, setError] = useState(null);
@@ -186,9 +219,9 @@ export default function AutoCaptionsTab() {
     const [fontName, setFontName] = useState('Montserrat ExtraBold');
     const [fontSize, setFontSize] = useState(44);
     const [fontColor, setFontColor] = useState('#FFFFFF');
-    const [highlightColor, setHighlightColor] = useState('#FFE500');
-    const [effect, setEffect] = useState('pop');
-    const [borderWidth, setBorderWidth] = useState(4);
+    const [highlightColor, setHighlightColor] = useState('#A3FF12'); // Color de caja / resalte
+    const [effect, setEffect] = useState('highlight'); // 'highlight' (caja pill) | 'pop' | 'glow' | 'none'
+    const [borderWidth, setBorderWidth] = useState(3);
     const [coverBox, setCoverBox] = useState(false);
     const [uppercase, setUppercase] = useState(true);
 
@@ -206,6 +239,7 @@ export default function AutoCaptionsTab() {
     const [currentTimeMs, setCurrentTimeMs] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
     const [containerWidth, setContainerWidth] = useState(480);
+    const [forcePreviewWhenPaused, setForcePreviewWhenPaused] = useState(false);
 
     // Translation State
     const [isTranslating, setIsTranslating] = useState(false);
@@ -232,6 +266,23 @@ export default function AutoCaptionsTab() {
         return () => ro.disconnect();
     }, [jobData]);
 
+    // High-precision 60fps playhead tracking so subtitle disappears the exact millisecond speech ends
+    useEffect(() => {
+        let animId;
+        const tick = () => {
+            if (videoRef.current && !videoRef.current.paused) {
+                setCurrentTimeMs(Math.round(videoRef.current.currentTime * 1000));
+                animId = requestAnimationFrame(tick);
+            }
+        };
+        if (isPlaying) {
+            animId = requestAnimationFrame(tick);
+        }
+        return () => {
+            if (animId) cancelAnimationFrame(animId);
+        };
+    }, [isPlaying]);
+
     // Global drag release listener
     useEffect(() => {
         const handleGlobalMouseUp = () => {
@@ -250,28 +301,39 @@ export default function AutoCaptionsTab() {
         return buildSubtitleBlocks(captions, singleLine, 12);
     }, [captions, singleLine]);
 
-    // Find active subtitle block at current video time
+    // Active subtitle block: STRICTLY DISAPPEARS when speech ends or during silence
     const activeBlockData = useMemo(() => {
         if (!subtitleBlocks || subtitleBlocks.length === 0) return null;
 
-        // Find exact matching block
+        // Check if current time is strictly within any spoken phrase (+ 100ms smooth tail)
         const matched = subtitleBlocks.find(
-            b => currentTimeMs >= b.startMs && currentTimeMs <= b.endMs
+            b => currentTimeMs >= b.startMs && currentTimeMs <= (b.endMs + 100)
         );
         if (matched) return matched;
 
-        // If paused or in pause between words, pick closest block so preview is ALWAYS visible
-        let closest = subtitleBlocks[0];
-        let minDiff = Math.abs(currentTimeMs - closest.startMs);
-        for (let i = 1; i < subtitleBlocks.length; i++) {
-            const diff = Math.abs(currentTimeMs - subtitleBlocks[i].startMs);
-            if (diff < minDiff) {
-                minDiff = diff;
-                closest = subtitleBlocks[i];
-            }
+        // Only when paused at the very beginning (0s), show first block as initial reference
+        if (!isPlaying && currentTimeMs < 500 && subtitleBlocks.length > 0) {
+            return subtitleBlocks[0];
         }
-        return closest;
-    }, [subtitleBlocks, currentTimeMs]);
+
+        // If user explicitly enabled preview while paused on a silent frame
+        if (!isPlaying && forcePreviewWhenPaused && subtitleBlocks.length > 0) {
+            let closest = subtitleBlocks[0];
+            let minDiff = Math.abs(currentTimeMs - closest.startMs);
+            for (let i = 1; i < subtitleBlocks.length; i++) {
+                const diff = Math.abs(currentTimeMs - subtitleBlocks[i].startMs);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closest = subtitleBlocks[i];
+                }
+            }
+            return closest;
+        }
+
+        // Outside of spoken words (silence, speech finished, end of video):
+        // TEXT COMPLETELY DISAPPEARS!
+        return null;
+    }, [subtitleBlocks, currentTimeMs, isPlaying, forcePreviewWhenPaused]);
 
     const handleFileChange = (e) => {
         if (e.target.files && e.target.files[0]) {
@@ -360,9 +422,9 @@ export default function AutoCaptionsTab() {
                 setFontName(data.caption_style.font_name || 'Montserrat ExtraBold');
                 setFontSize(data.caption_style.font_size || 44);
                 setFontColor(data.caption_style.font_color || '#FFFFFF');
-                setHighlightColor(data.caption_style.highlight_color || '#FFE500');
-                setEffect(data.caption_style.effect || 'pop');
-                setBorderWidth(data.caption_style.border_width ?? 4);
+                setHighlightColor(data.caption_style.highlight_color || '#A3FF12');
+                setEffect(data.caption_style.effect || 'highlight');
+                setBorderWidth(data.caption_style.border_width ?? 3);
             }
         } catch (err) {
             setError(err.message || 'Error al generar subtítulos.');
@@ -555,7 +617,31 @@ export default function AutoCaptionsTab() {
         } : {};
 
         if (isActive) {
-            if (effect === 'pop') {
+            if (effect === 'highlight') {
+                // Word inside a colored pill box (e.g. Lime Submagic, CapCut Pill)
+                const textColorOnPill = getContrastColor(highlightColor);
+                return (
+                    <span
+                        key={idx}
+                        style={{
+                            backgroundColor: highlightColor,
+                            color: textColorOnPill,
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            display: 'inline-block',
+                            margin: '0 3px',
+                            fontWeight: 900,
+                            WebkitTextStroke: '0px transparent',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                            transform: 'scale(1.05)',
+                            transition: 'background-color 0.15s ease, color 0.15s ease',
+                        }}
+                    >
+                        {text}
+                    </span>
+                );
+            } else if (effect === 'pop') {
+                // Word pops in scale and color
                 return (
                     <span
                         key={idx}
@@ -573,26 +659,8 @@ export default function AutoCaptionsTab() {
                         {text}
                     </span>
                 );
-            } else if (effect === 'highlight') {
-                return (
-                    <span
-                        key={idx}
-                        style={{
-                            backgroundColor: highlightColor,
-                            color: '#000000',
-                            padding: '1px 8px',
-                            borderRadius: '6px',
-                            display: 'inline-block',
-                            margin: '0 3px',
-                            fontWeight: 900,
-                            WebkitTextStroke: '0px transparent',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-                        }}
-                    >
-                        {text}
-                    </span>
-                );
             } else if (effect === 'glow') {
+                // Word with neon glow
                 return (
                     <span
                         key={idx}
@@ -609,6 +677,7 @@ export default function AutoCaptionsTab() {
                     </span>
                 );
             } else {
+                // Static highlight
                 return (
                     <span
                         key={idx}
@@ -660,7 +729,7 @@ export default function AutoCaptionsTab() {
                             Auto Subtítulos & Traducción
                         </h1>
                         <p className="text-xs sm:text-sm text-muted mt-1">
-                            Sube cualquier video para subtitularlo con previsualización en vivo, movimiento libre, tipografías virales y modo anti-desborde de 1 sola línea.
+                            Sube cualquier video para subtitularlo con previsualización en vivo, movimiento libre, tipografías virales, colores personalizables y desaparición automática al terminar de hablar.
                         </p>
                     </div>
 
@@ -798,7 +867,7 @@ export default function AutoCaptionsTab() {
                                     <Sparkles size={14} className="text-brass" /> ESTILOS VIRALES DISPONIBLES
                                 </h2>
                                 <p className="text-xs text-muted mb-3">
-                                    Elige el estilo que se aplicará por defecto. Podrás cambiar tipografías, colores, mover libremente y ajustar márgenes en vivo.
+                                    Elige el estilo que se aplicará por defecto. Podrás cambiar libremente el color de la caja, tipografías y moverlo en vivo.
                                 </p>
                                 <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar">
                                     {VIRAL_PRESETS.map((p) => {
@@ -821,7 +890,7 @@ export default function AutoCaptionsTab() {
                                                 </div>
                                                 <div 
                                                     className="w-6 h-6 rounded-full border border-rule flex items-center justify-center shrink-0 text-xs font-bold"
-                                                    style={{ backgroundColor: p.highlight, color: '#000000' }}
+                                                    style={{ backgroundColor: p.highlight, color: getContrastColor(p.highlight) }}
                                                 >
                                                     A
                                                 </div>
@@ -893,6 +962,10 @@ export default function AutoCaptionsTab() {
                                     onTimeUpdate={handleTimeUpdate}
                                     onPlay={() => setIsPlaying(true)}
                                     onPause={() => setIsPlaying(false)}
+                                    onEnded={() => {
+                                        setIsPlaying(false);
+                                        setCurrentTimeMs(0);
+                                    }}
                                     className="w-full max-h-[560px] object-contain rounded-input block mx-auto"
                                 />
 
@@ -911,7 +984,7 @@ export default function AutoCaptionsTab() {
                                     </div>
                                 )}
 
-                                {/* Real-Time Drag & Drop Subtitle Overlay */}
+                                {/* Real-Time Drag & Drop Subtitle Overlay - STRICTLY DISAPPEARS WHEN SPEECH ENDS */}
                                 {activeViewMode === 'interactive' && activeBlockData && (
                                     <div
                                         onMouseDown={handleSubtitleMouseDown}
@@ -960,7 +1033,7 @@ export default function AutoCaptionsTab() {
                                             {activeBlockData.words.map((w, idx) => {
                                                 const isActive = isPlaying 
                                                     ? (currentTimeMs >= w.startMs && currentTimeMs <= w.endMs)
-                                                    : (idx === 0); // Highlight first word when paused so effect is clearly previewed
+                                                    : (idx === 0); // Highlight first word when paused so user sees the box color clearly
                                                 return renderWord(w, isActive, idx);
                                             })}
                                         </div>
@@ -1009,7 +1082,7 @@ export default function AutoCaptionsTab() {
                                 )}
 
                                 <p className="text-center text-[11px] text-muted leading-relaxed">
-                                    💡 Consejo: Ajusta tipografías y márgenes en vivo arriba. Cuando te guste el resultado, presiona <strong>"Exportar Video Final"</strong>.
+                                    💡 El texto desaparece automáticamente cuando la persona deja de hablar. Al exportar, se graba en alta calidad con el color de caja y fuente elegidos.
                                 </p>
                             </div>
 
@@ -1116,6 +1189,162 @@ export default function AutoCaptionsTab() {
                                     </div>
                                 </div>
 
+                                {/* Animation Effect & Box Style Selector */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="eyebrow block mb-1.5">EFECTO DE ANIMACIÓN</label>
+                                        <select
+                                            value={effect}
+                                            onChange={(e) => setEffect(e.target.value)}
+                                            className="input-field text-xs py-2 font-medium"
+                                        >
+                                            <option value="highlight">Highlight Pill (Caja enmarcando palabra activa)</option>
+                                            <option value="pop">Pop (Palabra crece en color de resalte)</option>
+                                            <option value="glow">Glow (Resplandor neón)</option>
+                                            <option value="none">Estático (Sin animación)</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <div className="flex justify-between items-center mb-1.5">
+                                            <label className="eyebrow">TAMAÑO DE FUENTE</label>
+                                            <span className="text-xs font-mono text-muted">{fontSize}px</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="24"
+                                            max="72"
+                                            value={fontSize}
+                                            onChange={(e) => setFontSize(parseInt(e.target.value))}
+                                            className="w-full accent-brass cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* CUSTOM COLOR OF THE HIGHLIGHT BOX / ACTIVE WORD (Requested by user) */}
+                                <div className="p-4 rounded-card bg-paper3 border border-rule space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <label className="eyebrow flex items-center gap-2">
+                                            <Palette size={14} className="text-brass" />
+                                            <span>
+                                                {effect === 'highlight' 
+                                                    ? 'COLOR DE LA CAJA QUE ENMARCA LA PALABRA (PILL)' 
+                                                    : 'COLOR DE RESALTE DE PALABRA ACTIVA'}
+                                            </span>
+                                        </label>
+                                        <div 
+                                            className="text-xs px-2.5 py-0.5 rounded font-bold shadow-sm"
+                                            style={{ 
+                                                backgroundColor: highlightColor, 
+                                                color: getContrastColor(highlightColor) 
+                                            }}
+                                        >
+                                            VISTA PREVIA
+                                        </div>
+                                    </div>
+
+                                    <p className="text-[11px] text-muted">
+                                        {effect === 'highlight'
+                                            ? 'Elige el color de la caja que encierra la palabra activa (ej. Verde Lima, Púrpura, Amarillo, Rojo, etc.):'
+                                            : 'Elige el color con el que resalta la palabra que se está pronunciando:'}
+                                    </p>
+
+                                    {/* 1-Click Color Chips for Box / Highlight */}
+                                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                                        {HIGHLIGHT_COLOR_PRESETS.map((c) => {
+                                            const isSelected = highlightColor.toLowerCase() === c.hex.toLowerCase();
+                                            return (
+                                                <button
+                                                    key={c.hex}
+                                                    type="button"
+                                                    title={c.name}
+                                                    onClick={() => setHighlightColor(c.hex)}
+                                                    className={`w-8 h-8 rounded-full border-2 transition-transform flex items-center justify-center shrink-0 shadow-sm ${
+                                                        isSelected 
+                                                            ? 'scale-115 border-white ring-2 ring-brass shadow-md' 
+                                                            : 'border-transparent hover:scale-105 opacity-90 hover:opacity-100'
+                                                    }`}
+                                                    style={{ backgroundColor: c.hex }}
+                                                >
+                                                    {isSelected && (
+                                                        <Check 
+                                                            size={15} 
+                                                            style={{ color: getContrastColor(c.hex) }} 
+                                                            className="stroke-[3]" 
+                                                        />
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+
+                                        {/* Custom Color Picker input */}
+                                        <div className="flex items-center gap-2 ml-2 pl-3 border-l border-rule">
+                                            <input
+                                                type="color"
+                                                value={highlightColor}
+                                                onChange={(e) => setHighlightColor(e.target.value)}
+                                                className="w-8 h-8 rounded-full border border-rule cursor-pointer"
+                                                title="Seleccionar color personalizado"
+                                            />
+                                            <input
+                                                type="text"
+                                                value={highlightColor}
+                                                onChange={(e) => setHighlightColor(e.target.value)}
+                                                className="input-field font-mono text-xs uppercase w-20 py-1"
+                                                maxLength={7}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* BASE TEXT COLOR */}
+                                <div>
+                                    <label className="eyebrow block mb-1.5">COLOR DEL TEXTO BASE (RESTO DE PALABRAS)</label>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        {BASE_COLOR_PRESETS.map((c) => {
+                                            const isSelected = fontColor.toLowerCase() === c.hex.toLowerCase();
+                                            return (
+                                                <button
+                                                    key={c.hex}
+                                                    type="button"
+                                                    title={c.name}
+                                                    onClick={() => setFontColor(c.hex)}
+                                                    className={`w-7 h-7 rounded-full border-2 transition-transform flex items-center justify-center shrink-0 ${
+                                                        isSelected 
+                                                            ? 'scale-115 border-white ring-2 ring-brass' 
+                                                            : 'border-rule hover:scale-105 opacity-85 hover:opacity-100'
+                                                    }`}
+                                                    style={{ backgroundColor: c.hex }}
+                                                >
+                                                    {isSelected && (
+                                                        <Check 
+                                                            size={13} 
+                                                            style={{ color: getContrastColor(c.hex) }} 
+                                                            className="stroke-[3]" 
+                                                        />
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+
+                                        <div className="flex items-center gap-2 ml-2 pl-3 border-l border-rule">
+                                            <input
+                                                type="color"
+                                                value={fontColor}
+                                                onChange={(e) => setFontColor(e.target.value)}
+                                                className="w-7 h-7 rounded-full border border-rule cursor-pointer"
+                                            />
+                                            <input
+                                                type="text"
+                                                value={fontColor}
+                                                onChange={(e) => setFontColor(e.target.value)}
+                                                className="input-field font-mono text-xs uppercase w-20 py-1"
+                                                maxLength={7}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
                                 {/* Free Drag & Positioning Section */}
                                 <div className="p-4 rounded-card bg-paper3 border border-rule space-y-4">
                                     <div className="flex items-center justify-between">
@@ -1209,7 +1438,7 @@ export default function AutoCaptionsTab() {
                                             <Sliders size={16} className="text-brass" />
                                             <span className="text-xs font-semibold text-ink uppercase tracking-wide">MÁRGENES & MODO 1 SOLA LÍNEA (ANTI-DESBORDE)</span>
                                         </div>
-                                        <span className="badge-brass text-[10px]">SOLUCIÓN VIRAL</span>
+                                        <span className="badge-brass text-[10px]">ANTI-DESBORDE</span>
                                     </div>
 
                                     {/* Toggle Single Line Mode */}
@@ -1259,79 +1488,6 @@ export default function AutoCaptionsTab() {
                                     </div>
                                 </div>
 
-                                {/* Animation Effects & Size */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="eyebrow block mb-1.5">EFECTO DE ANIMACIÓN</label>
-                                        <select
-                                            value={effect}
-                                            onChange={(e) => setEffect(e.target.value)}
-                                            className="input-field text-xs py-2"
-                                        >
-                                            <option value="pop">Pop (Palabra crece al hablarse)</option>
-                                            <option value="highlight">Highlight Pill (Caja en palabra activa)</option>
-                                            <option value="glow">Glow (Resplandor neón)</option>
-                                            <option value="none">Estático (Sin animación)</option>
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <div className="flex justify-between items-center mb-1.5">
-                                            <label className="eyebrow">TAMAÑO DE FUENTE</label>
-                                            <span className="text-xs font-mono text-muted">{fontSize}px</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="24"
-                                            max="72"
-                                            value={fontSize}
-                                            onChange={(e) => setFontSize(parseInt(e.target.value))}
-                                            className="w-full accent-brass cursor-pointer"
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Colors */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="eyebrow block mb-1.5">COLOR DE TEXTO BASE</label>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="color"
-                                                value={fontColor}
-                                                onChange={(e) => setFontColor(e.target.value)}
-                                                className="w-8 h-8 rounded-full border border-rule cursor-pointer"
-                                            />
-                                            <input
-                                                type="text"
-                                                value={fontColor}
-                                                onChange={(e) => setFontColor(e.target.value)}
-                                                className="input-field font-mono text-xs uppercase"
-                                                maxLength={7}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="eyebrow block mb-1.5">COLOR DE RESALTE / CAJA</label>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="color"
-                                                value={highlightColor}
-                                                onChange={(e) => setHighlightColor(e.target.value)}
-                                                className="w-8 h-8 rounded-full border border-rule cursor-pointer"
-                                            />
-                                            <input
-                                                type="text"
-                                                value={highlightColor}
-                                                onChange={(e) => setHighlightColor(e.target.value)}
-                                                className="input-field font-mono text-xs uppercase"
-                                                maxLength={7}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
                                 {/* Border & Toggles */}
                                 <div className="space-y-3 pt-2 border-t border-rule">
                                     <div>
@@ -1368,6 +1524,16 @@ export default function AutoCaptionsTab() {
                                                 className="w-4 h-4 accent-brass"
                                             />
                                             <span>Tapar subtítulos originales (Fondo negro)</span>
+                                        </label>
+
+                                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={forcePreviewWhenPaused}
+                                                onChange={(e) => setForcePreviewWhenPaused(e.target.checked)}
+                                                className="w-4 h-4 accent-brass"
+                                            />
+                                            <span>Mostrar texto de muestra al pausar</span>
                                         </label>
                                     </div>
                                 </div>

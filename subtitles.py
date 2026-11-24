@@ -405,7 +405,7 @@ def line_width(font_name, final_fontsize, text):
     return (font.getlength(text) / 1000.0 * em + len(text) * bold) * final_fontsize
 
 
-def line_fitter(font_name, final_fontsize, uppercase=False, grow=0.0, padding=0.0):
+def line_fitter(font_name, final_fontsize, uppercase=False, grow=0.0, padding=0.0, margin_lr=10):
     """fits(words) -> bool: do these words stay on one line of a 9:16 frame?
 
     ``grow`` is how much the active word swells (0.08 for the pop effect: the
@@ -413,7 +413,8 @@ def line_fitter(font_name, final_fontsize, uppercase=False, grow=0.0, padding=0.
     at both ends. None when the font cannot be measured."""
     if _font_metric(font_name) is None:
         return None
-    budget = _LINE_UNITS * 0.97 - 2 * padding
+    line_units = 288 * 9 / 16 - 2 * margin_lr
+    budget = line_units * 0.96 - 2 * padding
 
     def fits(words):
         if len(words) < 2:
@@ -483,7 +484,8 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
                  highlight_color="#FFD700", bg_color="#000000", bg_opacity=0.0,
                  effect="none", base_opacity=1.0, uppercase=False,
                  margin_v=SAFE_MARGIN_V, split_ranges=None,
-                 reveal=False, shadow=0, y_offset=None):
+                 reveal=False, shadow=0, y_offset=None,
+                 margin_h=None, single_line=None):
     """
     Generates a karaoke-style ASS file: each block is shown like the SRT path,
     but the currently spoken word is rendered in highlight_color (modern
@@ -563,9 +565,13 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     # text is the active word's own border: glow and box thicken it.
     edge = {"glow": max(3, int(outline_width) + 2), "box": max(4, int(outline_width) + 3),
             "highlight": max(2, round(final_fontsize * 0.12))}.get(effect, int(outline_width))
+    margin_lr = int(_clamp_number(margin_h, 5, 80, 10)) if margin_h is not None else 10
+    if single_line:
+        max_chars = min(max_chars or 12, 12)
     fits = None if max_chars == 1 else line_fitter(
         font_name, final_fontsize, uppercase=uppercase,
-        grow=0.08 if effect == "pop" else 0.0, padding=edge + shadow)
+        grow=0.08 if effect == "pop" else 0.0, padding=edge + shadow,
+        margin_lr=margin_lr)
     blocks = _collect_word_blocks(transcript, clip_start, clip_end, max_chars, max_duration,
                                   fits=fits)
     if not blocks:
@@ -605,7 +611,7 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
             f"Style: Active,{safe_font},{final_fontsize},"
             f"{hex_to_ass_color(on_box, 1.0)},{hex_to_ass_color(on_box, 1.0)},"
             f"{box_colour},{box_colour},1,0,0,0,100,100,0,0,3,{pad},0,"
-            f"{ass_alignment},10,10,{int(_clamp_number(margin_v, 0, 200, SAFE_MARGIN_V))},1\n"
+            f"{ass_alignment},{margin_lr},{margin_lr},{int(_clamp_number(margin_v, 0, 275, SAFE_MARGIN_V))},1\n"
         )
 
     header = (
@@ -614,7 +620,7 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
         "PlayResY: 288\n"
         # Measured blocks never need wrapping, so it is switched off for them:
         # a rounding difference must not bring the two-line jump back.
-        f"WrapStyle: {2 if fits else 0}\n"
+        f"WrapStyle: {2 if (single_line or fits) else 0}\n"
         "ScaledBorderAndShadow: yes\n"
         "\n"
         "[V4+ Styles]\n"
@@ -624,7 +630,7 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{safe_font},{final_fontsize},{primary_colour},{primary_colour},"
         f"{outline_colour},{back_colour},1,0,0,0,100,100,0,0,{border_style},"
-        f"{outline_width},{shadow},{ass_alignment},10,10,{int(_clamp_number(margin_v, 0, 200, SAFE_MARGIN_V))},1\n"
+        f"{outline_width},{shadow},{ass_alignment},{margin_lr},{margin_lr},{int(_clamp_number(margin_v, 0, 275, SAFE_MARGIN_V))},1\n"
         f"{active_style}"
         "\n"
         "[Events]\n"

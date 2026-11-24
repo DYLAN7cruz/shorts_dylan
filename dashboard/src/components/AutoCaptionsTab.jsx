@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
     Upload, Link2, Type, Sparkles, Loader2, Download, RefreshCw, 
-    Check, Play, Pause, AlertCircle, FileText, Palette, Sliders, Shield
+    Check, Play, Pause, AlertCircle, FileText, Palette, Sliders, 
+    Move, Eye, AlignCenter, ArrowUp, ArrowDown, LayoutTemplate
 } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch } from '../lib/api';
@@ -15,7 +16,7 @@ const VIRAL_PRESETS = [
         highlight: '#FFE500', 
         effect: 'pop', 
         badge: 'Top Viral',
-        desc: 'Texto blanco con pop amarillo vibrante y sombra' 
+        desc: 'Texto blanco con pop amarillo vibrante' 
     },
     { 
         id: 'pill', 
@@ -25,7 +26,7 @@ const VIRAL_PRESETS = [
         highlight: '#7C3AED', 
         effect: 'highlight', 
         badge: 'Trending',
-        desc: 'Caja púrpura redondeada detrás de la palabra activa' 
+        desc: 'Caja púrpura redondeada en palabra activa' 
     },
     { 
         id: 'lime', 
@@ -45,7 +46,7 @@ const VIRAL_PRESETS = [
         highlight: '#FFFF00', 
         effect: 'pop', 
         badge: 'YouTube',
-        desc: 'Fuente ultra gruesa con pop amarillo clásica de shorts' 
+        desc: 'Fuente ultra gruesa con pop amarillo clásica' 
     },
     { 
         id: 'gamer', 
@@ -55,7 +56,7 @@ const VIRAL_PRESETS = [
         highlight: '#00FF88', 
         effect: 'pop', 
         badge: 'Gaming',
-        desc: 'Tipografía estilo caricatura/cómic con resalte verde' 
+        desc: 'Estilo cómic/caricatura con resalte verde' 
     },
     { 
         id: 'poppins_clean', 
@@ -65,7 +66,7 @@ const VIRAL_PRESETS = [
         highlight: '#FFE500', 
         effect: 'pop', 
         badge: 'Elegante',
-        desc: 'Fuente geométrica moderna y limpia en minúsculas/mayúsculas' 
+        desc: 'Geométrica moderna y limpia' 
     },
     { 
         id: 'bebas_bold', 
@@ -75,7 +76,7 @@ const VIRAL_PRESETS = [
         highlight: '#FF3333', 
         effect: 'pop', 
         badge: 'Titular',
-        desc: 'Mayúsculas condensadas estilo cine con acento rojo' 
+        desc: 'Mayúsculas condensadas estilo cine' 
     },
     { 
         id: 'cover_box', 
@@ -85,26 +86,82 @@ const VIRAL_PRESETS = [
         highlight: '#FFE500', 
         effect: 'pop', 
         badge: 'Utilidad',
-        desc: 'Fondo negro 100% opaco para ocultar subtítulos originales' 
+        desc: 'Fondo negro 100% opaco para tapar previos' 
     },
 ];
 
 const FONT_OPTIONS = [
-    { value: 'Anton', label: 'Anton (Clásica Short)' },
-    { value: 'Montserrat ExtraBold', label: 'Montserrat ExtraBold (Top TikTok)' },
-    { value: 'The Bold Font', label: 'The Bold Font (MrBeast / Podcasts)' },
-    { value: 'Bebas Neue', label: 'Bebas Neue (Titular Cinemático)' },
-    { value: 'Archivo Black', label: 'Archivo Black (Ultra Gruesa)' },
-    { value: 'Poppins', label: 'Poppins (Moderna y Limpia)' },
-    { value: 'Luckiest Guy', label: 'Luckiest Guy (Divertida / Caricatura)' },
-    { value: 'Impact', label: 'Impact (Contundente)' },
-    { value: 'Verdana', label: 'Verdana (Simple)' },
+    { value: 'Anton', label: 'Anton', category: 'Clásica Shorts & Reels' },
+    { value: 'Montserrat ExtraBold', label: 'Montserrat ExtraBold', category: 'Top TikTok / Hormozi' },
+    { value: 'The Bold Font', label: 'The Bold Font', category: 'Estilo MrBeast' },
+    { value: 'Bebas Neue', label: 'Bebas Neue', category: 'Titulares Cinemáticos' },
+    { value: 'Archivo Black', label: 'Archivo Black', category: 'Ultra Gruesa e Impactante' },
+    { value: 'Poppins', label: 'Poppins', category: 'Moderna, Redondeada y Limpia' },
+    { value: 'Luckiest Guy', label: 'Luckiest Guy', category: 'Divertida / Estilo Caricatura' },
+    { value: 'Impact', label: 'Impact', category: 'Contundente Clásica' },
+    { value: 'Verdana', label: 'Verdana', category: 'Simple y Neutra' },
 ];
 
 const COLOR_PALETTE = [
     '#FFFFFF', '#FFE500', '#FFDD00', '#A3FF12', '#00FF88', 
     '#00FFFF', '#7C3AED', '#FF3366', '#FF4444', '#FF8800'
 ];
+
+/**
+ * Agrupa palabras en bloques de subtítulos cortos (1 línea)
+ * para evitar que las frases largas salten hacia arriba.
+ */
+function buildSubtitleBlocks(wordsList, isSingleLine = true, charLimit = 12) {
+    if (!wordsList || wordsList.length === 0) return [];
+    const blocks = [];
+    let currentWords = [];
+    let currentLength = 0;
+    let blockStart = 0;
+
+    for (let i = 0; i < wordsList.length; i++) {
+        const item = wordsList[i];
+        const text = item.text || '';
+        const start = item.startMs ?? 0;
+        const end = item.endMs ?? start + 200;
+
+        if (currentWords.length === 0) {
+            currentWords = [item];
+            currentLength = text.length;
+            blockStart = start;
+        } else {
+            const blockDuration = (end - blockStart) / 1000.0;
+            const maxCharsAllowed = isSingleLine ? charLimit : 22;
+            const willExceedChars = (currentLength + 1 + text.length) > maxCharsAllowed;
+            const willExceedTime = blockDuration > (isSingleLine ? 1.5 : 2.5);
+
+            if (willExceedChars || willExceedTime) {
+                blocks.push({
+                    startMs: currentWords[0].startMs,
+                    endMs: currentWords[currentWords.length - 1].endMs,
+                    words: currentWords,
+                    text: currentWords.map(w => w.text).join(' ')
+                });
+                currentWords = [item];
+                currentLength = text.length;
+                blockStart = start;
+            } else {
+                currentWords.push(item);
+                currentLength += 1 + text.length;
+            }
+        }
+    }
+
+    if (currentWords.length > 0) {
+        blocks.push({
+            startMs: currentWords[0].startMs,
+            endMs: currentWords[currentWords.length - 1].endMs,
+            words: currentWords,
+            text: currentWords.map(w => w.text).join(' ')
+        });
+    }
+
+    return blocks;
+}
 
 export default function AutoCaptionsTab() {
     const [mode, setMode] = useState('file'); // 'file' | 'url'
@@ -118,6 +175,9 @@ export default function AutoCaptionsTab() {
     // Studio Result State
     const [jobData, setJobData] = useState(null);
     const [currentVideoUrl, setCurrentVideoUrl] = useState(null);
+    const [rawVideoUrl, setRawVideoUrl] = useState(null);
+    const [burnedVideoUrl, setBurnedVideoUrl] = useState(null);
+    const [activeViewMode, setActiveViewMode] = useState('interactive'); // 'interactive' | 'burned'
     const [captions, setCaptions] = useState([]);
     const [editableText, setEditableText] = useState('');
     const [showTextEditor, setShowTextEditor] = useState(false);
@@ -129,19 +189,89 @@ export default function AutoCaptionsTab() {
     const [highlightColor, setHighlightColor] = useState('#FFE500');
     const [effect, setEffect] = useState('pop');
     const [borderWidth, setBorderWidth] = useState(4);
-    const [yOffset, setYOffset] = useState(0.82);
     const [coverBox, setCoverBox] = useState(false);
     const [uppercase, setUppercase] = useState(true);
+
+    // Positioning State (Free Interactive Drag & Drop + Sliders)
+    const [yOffset, setYOffset] = useState(0.80); // 80% from top (bottom area)
+    const [xOffset, setXOffset] = useState(0.50); // 50% from left (centered)
+    const [isDragging, setIsDragging] = useState(false);
+
+    // Side Margin & Single Line Mode (Anti-desborde vertical)
+    const [singleLine, setSingleLine] = useState(true); // 1 sola línea mode
+    const [sideMarginWidth, setSideMarginWidth] = useState(82); // % max width (safe margin)
+    const [showMarginGuides, setShowMarginGuides] = useState(false);
+
+    // Video Playback & Time Synchronization State
+    const [currentTimeMs, setCurrentTimeMs] = useState(0);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [containerWidth, setContainerWidth] = useState(480);
 
     // Translation State
     const [isTranslating, setIsTranslating] = useState(false);
     const [translateSuccess, setTranslateSuccess] = useState(false);
 
-    // Re-burn State
+    // Export / Final Burn State
     const [isApplying, setIsApplying] = useState(false);
     const [applySuccess, setApplySuccess] = useState(false);
 
     const videoRef = useRef(null);
+    const videoContainerRef = useRef(null);
+
+    // Track container width for true proportional preview font sizing
+    useEffect(() => {
+        if (!videoContainerRef.current) return;
+        const ro = new ResizeObserver((entries) => {
+            for (let entry of entries) {
+                if (entry.contentRect.width > 0) {
+                    setContainerWidth(entry.contentRect.width);
+                }
+            }
+        });
+        ro.observe(videoContainerRef.current);
+        return () => ro.disconnect();
+    }, [jobData]);
+
+    // Global drag release listener
+    useEffect(() => {
+        const handleGlobalMouseUp = () => {
+            if (isDragging) setIsDragging(false);
+        };
+        window.addEventListener('mouseup', handleGlobalMouseUp);
+        window.addEventListener('touchend', handleGlobalMouseUp);
+        return () => {
+            window.removeEventListener('mouseup', handleGlobalMouseUp);
+            window.removeEventListener('touchend', handleGlobalMouseUp);
+        };
+    }, [isDragging]);
+
+    // Build subtitle blocks according to single-line mode
+    const subtitleBlocks = useMemo(() => {
+        return buildSubtitleBlocks(captions, singleLine, 12);
+    }, [captions, singleLine]);
+
+    // Find active subtitle block at current video time
+    const activeBlockData = useMemo(() => {
+        if (!subtitleBlocks || subtitleBlocks.length === 0) return null;
+
+        // Find exact matching block
+        const matched = subtitleBlocks.find(
+            b => currentTimeMs >= b.startMs && currentTimeMs <= b.endMs
+        );
+        if (matched) return matched;
+
+        // If paused or in pause between words, pick closest block so preview is ALWAYS visible
+        let closest = subtitleBlocks[0];
+        let minDiff = Math.abs(currentTimeMs - closest.startMs);
+        for (let i = 1; i < subtitleBlocks.length; i++) {
+            const diff = Math.abs(currentTimeMs - subtitleBlocks[i].startMs);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closest = subtitleBlocks[i];
+            }
+        }
+        return closest;
+    }, [subtitleBlocks, currentTimeMs]);
 
     const handleFileChange = (e) => {
         if (e.target.files && e.target.files[0]) {
@@ -213,7 +343,15 @@ export default function AutoCaptionsTab() {
 
             const data = await res.json();
             setJobData(data);
-            setCurrentVideoUrl(getApiUrl(data.video_url));
+            
+            const rawUrl = data.raw_video_url ? getApiUrl(data.raw_video_url) : getApiUrl(data.video_url);
+            const burnedUrl = data.video_url ? getApiUrl(data.video_url) : null;
+            
+            setRawVideoUrl(rawUrl);
+            setBurnedVideoUrl(burnedUrl);
+            setCurrentVideoUrl(rawUrl); // Start with clean raw video for 0ms live interactive preview!
+            setActiveViewMode('interactive');
+
             setCaptions(data.captions || []);
             setEditableText((data.captions || []).map(c => c.text).join(' '));
 
@@ -246,7 +384,7 @@ export default function AutoCaptionsTab() {
                     job_id: jobData.job_id,
                     clip_index: 0,
                     target_language: 'es',
-                    burn: true
+                    burn: false // Translate text instantly for live preview!
                 })
             });
             if (!res.ok) {
@@ -255,10 +393,6 @@ export default function AutoCaptionsTab() {
                 throw new Error(detail);
             }
             const data = await res.json();
-            if (data.new_video_url) {
-                setCurrentVideoUrl(getApiUrl(data.new_video_url));
-                if (videoRef.current) videoRef.current.load();
-            }
             if (data.captions) {
                 setCaptions(data.captions);
                 setEditableText(data.text || data.captions.map(c => c.text).join(' '));
@@ -272,7 +406,8 @@ export default function AutoCaptionsTab() {
         }
     };
 
-    const handleApplyStyle = async () => {
+    // Burn / Export final video with FFmpeg using exact styling, 1-line mode & margins
+    const handleExportFinalVideo = async () => {
         if (!jobData) return;
         setIsApplying(true);
         setError(null);
@@ -282,6 +417,10 @@ export default function AutoCaptionsTab() {
                 startMs: c.startMs,
                 endMs: c.endMs
             }));
+
+            // Convert sideMarginWidth into margin_h units for ASS
+            const marginH = Math.max(5, Math.min(80, Math.round(288 * 9 / 16 * ((100 - sideMarginWidth) / 200))));
+            const maxChars = singleLine ? 12 : 22;
 
             const res = await apiFetch('/api/subtitle', {
                 method: 'POST',
@@ -302,6 +441,9 @@ export default function AutoCaptionsTab() {
                     base_opacity: 1.0,
                     uppercase: uppercase,
                     y_offset: yOffset,
+                    margin_h: marginH,
+                    single_line: singleLine,
+                    max_chars: maxChars,
                     words: wordsPayload
                 })
             });
@@ -314,13 +456,16 @@ export default function AutoCaptionsTab() {
 
             const data = await res.json();
             if (data.new_video_url) {
-                setCurrentVideoUrl(getApiUrl(data.new_video_url));
+                const fullBurnedUrl = getApiUrl(data.new_video_url);
+                setBurnedVideoUrl(fullBurnedUrl);
+                setCurrentVideoUrl(fullBurnedUrl);
+                setActiveViewMode('burned');
                 if (videoRef.current) videoRef.current.load();
                 setApplySuccess(true);
-                setTimeout(() => setApplySuccess(false), 3000);
+                setTimeout(() => setApplySuccess(false), 4000);
             }
         } catch (err) {
-            setError(err.message || 'Error aplicando nuevo diseño.');
+            setError(err.message || 'Error exportando video subtitulado.');
         } finally {
             setIsApplying(false);
         }
@@ -347,11 +492,156 @@ export default function AutoCaptionsTab() {
     const handleReset = () => {
         setJobData(null);
         setCurrentVideoUrl(null);
+        setRawVideoUrl(null);
+        setBurnedVideoUrl(null);
         setCaptions([]);
         setEditableText('');
         setFile(null);
         setUrl('');
         setError(null);
+    };
+
+    // Video Timeupdate
+    const handleTimeUpdate = () => {
+        if (videoRef.current) {
+            setCurrentTimeMs(Math.round(videoRef.current.currentTime * 1000));
+        }
+    };
+
+    // Drag & Drop handlers on Subtitle Box
+    const handleSubtitleMouseDown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleSubtitleTouchStart = (e) => {
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleContainerMouseMove = (e) => {
+        if (!isDragging || !videoContainerRef.current) return;
+        const rect = videoContainerRef.current.getBoundingClientRect();
+        const clientX = e.clientX;
+        const clientY = e.clientY;
+        const newX = Math.max(0.12, Math.min(0.88, (clientX - rect.left) / rect.width));
+        const newY = Math.max(0.08, Math.min(0.92, (clientY - rect.top) / rect.height));
+        setXOffset(parseFloat(newX.toFixed(3)));
+        setYOffset(parseFloat(newY.toFixed(3)));
+    };
+
+    const handleContainerTouchMove = (e) => {
+        if (!isDragging || !videoContainerRef.current || !e.touches || !e.touches[0]) return;
+        const rect = videoContainerRef.current.getBoundingClientRect();
+        const clientX = e.touches[0].clientX;
+        const clientY = e.touches[0].clientY;
+        const newX = Math.max(0.12, Math.min(0.88, (clientX - rect.left) / rect.width));
+        const newY = Math.max(0.08, Math.min(0.92, (clientY - rect.top) / rect.height));
+        setXOffset(parseFloat(newX.toFixed(3)));
+        setYOffset(parseFloat(newY.toFixed(3)));
+    };
+
+    // Calculate real-time preview font size proportional to container width
+    const previewFontSize = Math.max(16, Math.min(48, Math.round(fontSize * (containerWidth / 720))));
+
+    // Helper to render individual words with active viral styling
+    const renderWord = (wordItem, isActive, idx) => {
+        const text = uppercase ? (wordItem.text || '').toUpperCase() : (wordItem.text || '');
+        
+        const strokeStyle = borderWidth > 0 ? {
+            WebkitTextStroke: `${Math.max(1, Math.round(borderWidth * 0.7))}px #000000`,
+            paintOrder: 'stroke fill',
+        } : {};
+
+        if (isActive) {
+            if (effect === 'pop') {
+                return (
+                    <span
+                        key={idx}
+                        style={{
+                            ...strokeStyle,
+                            color: highlightColor,
+                            display: 'inline-block',
+                            transform: 'scale(1.18)',
+                            transformOrigin: 'center bottom',
+                            transition: 'transform 0.08s ease-out',
+                            margin: '0 4px',
+                            fontWeight: 900,
+                        }}
+                    >
+                        {text}
+                    </span>
+                );
+            } else if (effect === 'highlight') {
+                return (
+                    <span
+                        key={idx}
+                        style={{
+                            backgroundColor: highlightColor,
+                            color: '#000000',
+                            padding: '1px 8px',
+                            borderRadius: '6px',
+                            display: 'inline-block',
+                            margin: '0 3px',
+                            fontWeight: 900,
+                            WebkitTextStroke: '0px transparent',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                        }}
+                    >
+                        {text}
+                    </span>
+                );
+            } else if (effect === 'glow') {
+                return (
+                    <span
+                        key={idx}
+                        style={{
+                            ...strokeStyle,
+                            color: '#FFFFFF',
+                            display: 'inline-block',
+                            margin: '0 4px',
+                            textShadow: `0 0 10px ${highlightColor}, 0 0 20px ${highlightColor}`,
+                            fontWeight: 900,
+                        }}
+                    >
+                        {text}
+                    </span>
+                );
+            } else {
+                return (
+                    <span
+                        key={idx}
+                        style={{
+                            ...strokeStyle,
+                            color: highlightColor,
+                            display: 'inline-block',
+                            margin: '0 4px',
+                            fontWeight: 800,
+                        }}
+                    >
+                        {text}
+                    </span>
+                );
+            }
+        }
+
+        // Inactive word in phrase
+        return (
+            <span
+                key={idx}
+                style={{
+                    ...strokeStyle,
+                    color: fontColor,
+                    display: 'inline-block',
+                    margin: '0 4px',
+                    opacity: 0.95,
+                    fontWeight: 700,
+                }}
+            >
+                {text}
+            </span>
+        );
     };
 
     return (
@@ -362,7 +652,7 @@ export default function AutoCaptionsTab() {
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-rule pb-5">
                     <div>
                         <div className="flex items-center gap-2">
-                            <span className="badge-brass text-xs">NUEVO ESTUDIO</span>
+                            <span className="badge-brass text-xs">ESTUDIO PRO</span>
                             <span className="text-xs text-muted">· Desde 10 seg hasta +30 min</span>
                         </div>
                         <h1 className="font-display lowercase text-2xl sm:text-3xl md:text-4xl text-ink mt-1 flex items-center gap-3">
@@ -370,7 +660,7 @@ export default function AutoCaptionsTab() {
                             Auto Subtítulos & Traducción
                         </h1>
                         <p className="text-xs sm:text-sm text-muted mt-1">
-                            Sube cualquier video para subtitularlo con efectos virales que hablan al ritmo de la voz y traducirlos al español con 1 clic.
+                            Sube cualquier video para subtitularlo con previsualización en vivo, movimiento libre, tipografías virales y modo anti-desborde de 1 sola línea.
                         </p>
                     </div>
 
@@ -488,7 +778,7 @@ export default function AutoCaptionsTab() {
                                 >
                                     {isProcessing ? (
                                         <>
-                                            <Loader2 size={18} className="animate-spin" />
+                                             <Loader2 size={18} className="animate-spin" />
                                             <span>{processingStep || 'Procesando video...'}</span>
                                         </>
                                     ) : (
@@ -508,7 +798,7 @@ export default function AutoCaptionsTab() {
                                     <Sparkles size={14} className="text-brass" /> ESTILOS VIRALES DISPONIBLES
                                 </h2>
                                 <p className="text-xs text-muted mb-3">
-                                    Elige el estilo que se aplicará por defecto. Podrás cambiar tipografías, colores y efectos después.
+                                    Elige el estilo que se aplicará por defecto. Podrás cambiar tipografías, colores, mover libremente y ajustar márgenes en vivo.
                                 </p>
                                 <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar">
                                     {VIRAL_PRESETS.map((p) => {
@@ -549,18 +839,136 @@ export default function AutoCaptionsTab() {
                 {jobData && (
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 
-                        {/* Left: Video Preview & Direct Download */}
+                        {/* Left Column: Interactive Video Player + Direct Download */}
                         <div className="lg:col-span-5 space-y-4">
-                            <div className="card p-3 sm:p-4 bg-black rounded-card border border-rule overflow-hidden flex flex-col items-center">
+                            
+                            {/* Mode Switcher Tabs */}
+                            <div className="flex items-center justify-between bg-paper2 p-1.5 rounded-input border border-rule text-xs">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setActiveViewMode('interactive');
+                                        if (rawVideoUrl) setCurrentVideoUrl(rawVideoUrl);
+                                    }}
+                                    className={`flex-1 py-1.5 px-2 rounded-md font-medium transition-all flex items-center justify-center gap-1.5 ${
+                                        activeViewMode === 'interactive' 
+                                            ? 'bg-brass text-black shadow-sm font-semibold' 
+                                            : 'text-muted hover:text-ink'
+                                    }`}
+                                >
+                                    <Eye size={13} />
+                                    <span>Vista Previa en Vivo (Edición)</span>
+                                </button>
+                                {burnedVideoUrl && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setActiveViewMode('burned');
+                                            setCurrentVideoUrl(burnedVideoUrl);
+                                        }}
+                                        className={`flex-1 py-1.5 px-2 rounded-md font-medium transition-all flex items-center justify-center gap-1.5 ${
+                                            activeViewMode === 'burned' 
+                                                ? 'bg-brass text-black shadow-sm font-semibold' 
+                                                : 'text-muted hover:text-ink'
+                                        }`}
+                                    >
+                                        <Sparkles size={13} />
+                                        <span>Video Quemado MP4</span>
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Player Container with Interactive Subtitle Overlay */}
+                            <div 
+                                ref={videoContainerRef}
+                                onMouseMove={handleContainerMouseMove}
+                                onTouchMove={handleContainerTouchMove}
+                                className="card p-2 sm:p-3 bg-black rounded-card border border-rule overflow-hidden relative flex flex-col items-center select-none"
+                            >
                                 <video
                                     ref={videoRef}
                                     src={currentVideoUrl}
                                     controls
                                     playsInline
-                                    className="w-full max-h-[580px] object-contain rounded-input"
+                                    onTimeUpdate={handleTimeUpdate}
+                                    onPlay={() => setIsPlaying(true)}
+                                    onPause={() => setIsPlaying(false)}
+                                    className="w-full max-h-[560px] object-contain rounded-input block mx-auto"
                                 />
 
-                                <div className="w-full flex items-center justify-between gap-2 mt-3 pt-3 border-t border-rule text-xs text-muted">
+                                {/* Visual Margin Guides (visible when adjusting side margin) */}
+                                {showMarginGuides && activeViewMode === 'interactive' && (
+                                    <div 
+                                        className="absolute top-0 bottom-0 pointer-events-none border-x-2 border-dashed border-brass/50 transition-all duration-150 z-10"
+                                        style={{
+                                            left: `${(100 - sideMarginWidth) / 2}%`,
+                                            right: `${(100 - sideMarginWidth) / 2}%`,
+                                        }}
+                                    >
+                                        <div className="absolute top-3 left-2 bg-black/80 text-brass text-[10px] px-2 py-0.5 rounded font-mono border border-brass/30">
+                                            Margen Seguro ({sideMarginWidth}%)
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Real-Time Drag & Drop Subtitle Overlay */}
+                                {activeViewMode === 'interactive' && activeBlockData && (
+                                    <div
+                                        onMouseDown={handleSubtitleMouseDown}
+                                        onTouchStart={handleSubtitleTouchStart}
+                                        style={{
+                                            position: 'absolute',
+                                            top: `${yOffset * 100}%`,
+                                            left: `${xOffset * 100}%`,
+                                            transform: 'translate(-50%, -50%)',
+                                            maxWidth: `${sideMarginWidth}%`,
+                                            width: 'max-content',
+                                            cursor: isDragging ? 'grabbing' : 'grab',
+                                            zIndex: 25,
+                                            userSelect: 'none',
+                                            pointerEvents: 'auto',
+                                        }}
+                                        className={`transition-shadow p-1.5 rounded-lg group ${
+                                            isDragging 
+                                                ? 'ring-2 ring-brass shadow-2xl scale-105' 
+                                                : 'hover:ring-1 hover:ring-brass/60'
+                                        }`}
+                                        title="Haz clic y arrastra para posicionar los subtítulos libremente"
+                                    >
+                                        {/* Drag Handle Tooltip */}
+                                        <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-black/90 text-brass text-[10px] px-2 py-0.5 rounded font-sans tracking-wide whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex items-center gap-1 shadow-md border border-brass/30">
+                                            <Move size={10} />
+                                            <span>Arrastra para mover subtítulos (Y: {Math.round(yOffset * 100)}% X: {Math.round(xOffset * 100)}%)</span>
+                                        </div>
+
+                                        {/* Subtitle Content with Strict Single-Line Styling */}
+                                        <div 
+                                            style={{
+                                                fontFamily: fontName,
+                                                fontSize: `${previewFontSize}px`,
+                                                textTransform: uppercase ? 'uppercase' : 'none',
+                                                whiteSpace: singleLine ? 'nowrap' : 'normal',
+                                                backgroundColor: coverBox ? 'rgba(0,0,0,0.94)' : 'transparent',
+                                                padding: coverBox ? '6px 14px' : '2px 6px',
+                                                borderRadius: '8px',
+                                                lineHeight: 1.25,
+                                                textAlign: 'center',
+                                                letterSpacing: fontName === 'Anton' || fontName === 'Bebas Neue' ? '1px' : 'normal',
+                                            }}
+                                            className="font-bold drop-shadow-md select-none leading-tight"
+                                        >
+                                            {activeBlockData.words.map((w, idx) => {
+                                                const isActive = isPlaying 
+                                                    ? (currentTimeMs >= w.startMs && currentTimeMs <= w.endMs)
+                                                    : (idx === 0); // Highlight first word when paused so effect is clearly previewed
+                                                return renderWord(w, isActive, idx);
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Video Info Footer */}
+                                <div className="w-full flex items-center justify-between gap-2 mt-2 pt-2 border-t border-rule text-xs text-muted">
                                     <span>Duración: {Math.round(jobData.duration)}s</span>
                                     {jobData.width && jobData.height && (
                                         <span>{jobData.width}×{jobData.height}</span>
@@ -569,23 +977,45 @@ export default function AutoCaptionsTab() {
                                 </div>
                             </div>
 
-                            {/* Download Action Card */}
+                            {/* Export & Download Card */}
                             <div className="card p-4 space-y-3">
-                                <a
-                                    href={currentVideoUrl}
-                                    download={`subtitled_${jobData.job_id}.mp4`}
+                                <button
+                                    onClick={handleExportFinalVideo}
+                                    disabled={isApplying}
                                     className="w-full btn-primary py-3 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg shadow-brass/10"
                                 >
-                                    <Download size={18} />
-                                    Descargar Video Subtitulado MP4
-                                </a>
-                                <p className="text-center text-[11px] text-muted">
-                                    Video procesado en alta resolución con subtítulos quemados en el archivo.
+                                    {isApplying ? (
+                                        <>
+                                            <Loader2 size={18} className="animate-spin" />
+                                            <span>Quemando Subtítulos en Alta Calidad con FFmpeg...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Sparkles size={18} />
+                                            <span>Exportar Video Final Subtitulado (MP4)</span>
+                                        </>
+                                    )}
+                                </button>
+
+                                {burnedVideoUrl && (
+                                    <a
+                                        href={burnedVideoUrl}
+                                        download={`subtitled_${jobData.job_id}.mp4`}
+                                        className="w-full py-2.5 px-4 rounded-input bg-paper3 hover:bg-brass hover:text-black text-ink font-semibold text-xs flex items-center justify-center gap-2 border border-rule hover:border-brass transition-all"
+                                    >
+                                        <Download size={16} />
+                                        <span>Descargar Video Final MP4 a tu PC</span>
+                                    </a>
+                                )}
+
+                                <p className="text-center text-[11px] text-muted leading-relaxed">
+                                    💡 Consejo: Ajusta tipografías y márgenes en vivo arriba. Cuando te guste el resultado, presiona <strong>"Exportar Video Final"</strong>.
                                 </p>
                             </div>
+
                         </div>
 
-                        {/* Right: Customization Controls & 1-Click Translation */}
+                        {/* Right Column: Customization Controls & 1-Click Translation */}
                         <div className="lg:col-span-7 space-y-5">
 
                             {/* 1-Click Translation Banner */}
@@ -613,20 +1043,20 @@ export default function AutoCaptionsTab() {
                                     ) : (
                                         <>
                                             <Sparkles size={16} />
-                                            <span>{translateSuccess ? '¡Subtítulos Traducidos y Quemados! ✓' : 'Traducir Subtítulos a Español ✨'}</span>
+                                            <span>{translateSuccess ? '¡Subtítulos Traducidos en Vivo! ✓' : 'Traducir Subtítulos a Español ✨'}</span>
                                         </>
                                     )}
                                 </button>
                             </div>
 
-                            {/* Style Customizer Card */}
+                            {/* Controls: Fonts & Styles */}
                             <div className="card p-5 space-y-5">
                                 <div className="flex items-center justify-between border-b border-rule pb-3">
                                     <h3 className="text-sm font-semibold text-ink flex items-center gap-2">
-                                        <Palette size={16} className="text-brass" /> Personalizar Diseño y Tipografía
+                                        <Palette size={16} className="text-brass" /> Tipografía y Estilo (Previsualización Instantánea)
                                     </h3>
                                     {applySuccess && (
-                                        <span className="text-xs text-ok font-medium animate-fade">¡Estilo aplicado! ✓</span>
+                                        <span className="text-xs text-ok font-medium animate-fade">¡Video exportado con éxito! ✓</span>
                                     )}
                                 </div>
 
@@ -651,21 +1081,186 @@ export default function AutoCaptionsTab() {
                                     </div>
                                 </div>
 
-                                {/* Font Selector */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="eyebrow block mb-1.5">FUENTE VIRAL</label>
-                                        <select
-                                            value={fontName}
-                                            onChange={(e) => setFontName(e.target.value)}
-                                            className="input-field text-xs py-2"
-                                        >
-                                            {FONT_OPTIONS.map((f) => (
-                                                <option key={f.value} value={f.value}>{f.label}</option>
-                                            ))}
-                                        </select>
+                                {/* Instant Font Selector Cards */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="eyebrow">FUENTE VIRAL (CAMBIO INMEDIATO AL CLIC)</label>
+                                        <span className="text-[11px] text-muted">Haz clic para previsualizar en el video</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {FONT_OPTIONS.map((f) => {
+                                            const active = fontName === f.value;
+                                            return (
+                                                <button
+                                                    key={f.value}
+                                                    type="button"
+                                                    onClick={() => setFontName(f.value)}
+                                                    className={`p-2.5 rounded-input border text-left transition-all flex flex-col justify-between ${
+                                                        active 
+                                                            ? 'border-brass bg-brass/10 ring-1 ring-brass' 
+                                                            : 'border-rule bg-paper3 hover:border-rule2'
+                                                    }`}
+                                                >
+                                                    <span 
+                                                        style={{ fontFamily: f.value }}
+                                                        className={`text-sm truncate block ${active ? 'text-brass font-bold' : 'text-ink'}`}
+                                                    >
+                                                        {f.label}
+                                                    </span>
+                                                    <span className="text-[10px] text-muted truncate mt-1">
+                                                        {f.category}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* Free Drag & Positioning Section */}
+                                <div className="p-4 rounded-card bg-paper3 border border-rule space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Move size={16} className="text-brass" />
+                                            <span className="text-xs font-semibold text-ink uppercase tracking-wide">POSICIONAMIENTO LIBRE & MOVIMIENTO</span>
+                                        </div>
+                                        <span className="text-[11px] text-muted">Arrastra en el video o usa botones</span>
                                     </div>
 
+                                    {/* Quick Position Buttons */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setYOffset(0.18)}
+                                            className={`py-1.5 px-2 rounded-input border text-xs font-medium flex items-center justify-center gap-1 transition-colors ${
+                                                yOffset === 0.18 ? 'border-brass bg-brass text-black font-semibold' : 'border-rule hover:border-rule2'
+                                            }`}
+                                        >
+                                            <ArrowUp size={13} /> Arriba (18%)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setYOffset(0.50)}
+                                            className={`py-1.5 px-2 rounded-input border text-xs font-medium flex items-center justify-center gap-1 transition-colors ${
+                                                yOffset === 0.50 ? 'border-brass bg-brass text-black font-semibold' : 'border-rule hover:border-rule2'
+                                            }`}
+                                        >
+                                            <LayoutTemplate size={13} /> Centro (50%)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setYOffset(0.80)}
+                                            className={`py-1.5 px-2 rounded-input border text-xs font-medium flex items-center justify-center gap-1 transition-colors ${
+                                                yOffset === 0.80 ? 'border-brass bg-brass text-black font-semibold' : 'border-rule hover:border-rule2'
+                                            }`}
+                                        >
+                                            <ArrowDown size={13} /> Abajo (80%)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setXOffset(0.50)}
+                                            className={`py-1.5 px-2 rounded-input border text-xs font-medium flex items-center justify-center gap-1 transition-colors ${
+                                                xOffset === 0.50 ? 'border-brass bg-brass text-black font-semibold' : 'border-rule hover:border-rule2'
+                                            }`}
+                                        >
+                                            <AlignCenter size={13} /> Centrar X (50%)
+                                        </button>
+                                    </div>
+
+                                    {/* Precision Sliders */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                                        <div>
+                                            <div className="flex justify-between items-center mb-1">
+                                                <label className="text-[11px] text-muted font-medium">ALTURA VERTICAL (Y)</label>
+                                                <span className="text-xs font-mono text-brass">{Math.round(yOffset * 100)}%</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="0.08"
+                                                max="0.92"
+                                                step="0.01"
+                                                value={yOffset}
+                                                onChange={(e) => setYOffset(parseFloat(e.target.value))}
+                                                className="w-full accent-brass cursor-pointer"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <div className="flex justify-between items-center mb-1">
+                                                <label className="text-[11px] text-muted font-medium">POSICIÓN HORIZONTAL (X)</label>
+                                                <span className="text-xs font-mono text-brass">{Math.round(xOffset * 100)}%</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="0.15"
+                                                max="0.85"
+                                                step="0.01"
+                                                value={xOffset}
+                                                onChange={(e) => setXOffset(parseFloat(e.target.value))}
+                                                className="w-full accent-brass cursor-pointer"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Side Margin & Single Line Mode (User Solution) */}
+                                <div className="p-4 rounded-card bg-paper3 border border-rule space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Sliders size={16} className="text-brass" />
+                                            <span className="text-xs font-semibold text-ink uppercase tracking-wide">MÁRGENES & MODO 1 SOLA LÍNEA (ANTI-DESBORDE)</span>
+                                        </div>
+                                        <span className="badge-brass text-[10px]">SOLUCIÓN VIRAL</span>
+                                    </div>
+
+                                    {/* Toggle Single Line Mode */}
+                                    <label className="flex items-start gap-3 cursor-pointer select-none p-2.5 rounded-input bg-paper2 border border-rule hover:border-brass/50 transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={singleLine}
+                                            onChange={(e) => setSingleLine(e.target.checked)}
+                                            className="w-4 h-4 accent-brass mt-0.5 shrink-0"
+                                        />
+                                        <div>
+                                            <span className="text-xs font-semibold text-ink block">
+                                                Modo 1 Sola Línea (Evita que el texto salte hacia arriba)
+                                            </span>
+                                            <p className="text-[11px] text-muted mt-0.5 leading-relaxed">
+                                                Divide el texto en frases cortas de 2-3 palabras exactas en una sola línea horizontal. Bloquea que los subtítulos se dividan en dos pisos o salten para arriba.
+                                            </p>
+                                        </div>
+                                    </label>
+
+                                    {/* Side Margin Slider */}
+                                    <div>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="text-[11px] text-muted font-medium">
+                                                ANCHO MÁXIMO DEL TEXTO / MARGEN LATERAL
+                                            </label>
+                                            <span className="text-xs font-mono text-brass">
+                                                {sideMarginWidth}% (Margen: {Math.round((100 - sideMarginWidth) / 2)}% por lado)
+                                            </span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="55"
+                                            max="95"
+                                            step="1"
+                                            value={sideMarginWidth}
+                                            onMouseEnter={() => setShowMarginGuides(true)}
+                                            onMouseLeave={() => setShowMarginGuides(false)}
+                                            onTouchStart={() => setShowMarginGuides(true)}
+                                            onTouchEnd={() => setShowMarginGuides(false)}
+                                            onChange={(e) => setSideMarginWidth(parseInt(e.target.value))}
+                                            className="w-full accent-brass cursor-pointer"
+                                        />
+                                        <p className="text-[11px] text-muted mt-1">
+                                            Controla el ancho seguro de la pantalla donde se escriben los subtítulos.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Animation Effects & Size */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div>
                                         <label className="eyebrow block mb-1.5">EFECTO DE ANIMACIÓN</label>
                                         <select
@@ -674,10 +1269,25 @@ export default function AutoCaptionsTab() {
                                             className="input-field text-xs py-2"
                                         >
                                             <option value="pop">Pop (Palabra crece al hablarse)</option>
-                                            <option value="highlight">Highlight Box (Caja en palabra activa)</option>
+                                            <option value="highlight">Highlight Pill (Caja en palabra activa)</option>
                                             <option value="glow">Glow (Resplandor neón)</option>
                                             <option value="none">Estático (Sin animación)</option>
                                         </select>
+                                    </div>
+
+                                    <div>
+                                        <div className="flex justify-between items-center mb-1.5">
+                                            <label className="eyebrow">TAMAÑO DE FUENTE</label>
+                                            <span className="text-xs font-mono text-muted">{fontSize}px</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="24"
+                                            max="72"
+                                            value={fontSize}
+                                            onChange={(e) => setFontSize(parseInt(e.target.value))}
+                                            className="w-full accent-brass cursor-pointer"
+                                        />
                                     </div>
                                 </div>
 
@@ -722,81 +1332,46 @@ export default function AutoCaptionsTab() {
                                     </div>
                                 </div>
 
-                                {/* Size & Position */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {/* Border & Toggles */}
+                                <div className="space-y-3 pt-2 border-t border-rule">
                                     <div>
-                                        <div className="flex justify-between items-center mb-1.5">
-                                            <label className="eyebrow">TAMAÑO DE FUENTE</label>
-                                            <span className="text-xs font-mono text-muted">{fontSize}px</span>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="eyebrow">GROSOR DE BORDE NEGRO</label>
+                                            <span className="text-xs font-mono text-muted">{borderWidth}px</span>
                                         </div>
                                         <input
                                             type="range"
-                                            min="20"
-                                            max="80"
-                                            value={fontSize}
-                                            onChange={(e) => setFontSize(parseInt(e.target.value))}
+                                            min="0"
+                                            max="8"
+                                            value={borderWidth}
+                                            onChange={(e) => setBorderWidth(parseInt(e.target.value))}
                                             className="w-full accent-brass cursor-pointer"
                                         />
                                     </div>
 
-                                    <div>
-                                        <div className="flex justify-between items-center mb-1.5">
-                                            <label className="eyebrow">ALTURA VERTICAL</label>
-                                            <span className="text-xs font-mono text-muted">{Math.round(yOffset * 100)}%</span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="0.1"
-                                            max="0.95"
-                                            step="0.02"
-                                            value={yOffset}
-                                            onChange={(e) => setYOffset(parseFloat(e.target.value))}
-                                            className="w-full accent-brass cursor-pointer"
-                                        />
+                                    <div className="flex flex-wrap items-center gap-5 text-xs text-ink2 pt-2">
+                                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={uppercase}
+                                                onChange={(e) => setUppercase(e.target.checked)}
+                                                className="w-4 h-4 accent-brass"
+                                            />
+                                            <span>MAYÚSCULAS VIRALES</span>
+                                        </label>
+
+                                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={coverBox}
+                                                onChange={(e) => setCoverBox(e.target.checked)}
+                                                className="w-4 h-4 accent-brass"
+                                            />
+                                            <span>Tapar subtítulos originales (Fondo negro)</span>
+                                        </label>
                                     </div>
                                 </div>
 
-                                {/* Toggles */}
-                                <div className="flex flex-wrap items-center gap-5 pt-3 border-t border-rule text-xs text-ink2">
-                                    <label className="flex items-center gap-2 cursor-pointer select-none">
-                                        <input
-                                            type="checkbox"
-                                            checked={uppercase}
-                                            onChange={(e) => setUppercase(e.target.checked)}
-                                            className="w-4 h-4 accent-brass"
-                                        />
-                                        <span>MAYÚSCULAS VIRALES</span>
-                                    </label>
-
-                                    <label className="flex items-center gap-2 cursor-pointer select-none">
-                                        <input
-                                            type="checkbox"
-                                            checked={coverBox}
-                                            onChange={(e) => setCoverBox(e.target.checked)}
-                                            className="w-4 h-4 accent-brass"
-                                        />
-                                        <span>Tapar subtítulos originales (Fondo negro)</span>
-                                    </label>
-                                </div>
-
-                                {/* Apply Style Button */}
-                                <button
-                                    onClick={handleApplyStyle}
-                                    disabled={isApplying}
-                                    className="w-full btn-primary py-2.5 flex items-center justify-center gap-2 text-xs sm:text-sm font-semibold"
-                                >
-                                    {isApplying ? (
-                                        <>
-                                            <Loader2 size={16} className="animate-spin" />
-                                            <span>Quemando subtítulos en video...</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Palette size={16} />
-                                            <span>Aplicar Diseño & Re-quemar Video</span>
-                                        </>
-                                    )}
-                                </button>
                             </div>
 
                             {/* Transcript Text Editor */}
@@ -823,7 +1398,7 @@ export default function AutoCaptionsTab() {
                                             placeholder="Edita la transcripción palabra por palabra..."
                                         />
                                         <p className="text-[11px] text-muted">
-                                            Al modificar el texto, presiona <strong>"Aplicar Diseño & Re-quemar Video"</strong> arriba para grabarlo en el video.
+                                            Al modificar el texto, se actualiza automáticamente en la vista previa del video.
                                         </p>
                                     </div>
                                 )}

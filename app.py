@@ -1758,7 +1758,7 @@ CAPTION_STYLE_FIELDS = (
     "style", "position", "font_size", "font_name", "font_color",
     "border_color", "border_width", "bg_color", "bg_opacity",
     "highlight_color", "effect", "base_opacity", "uppercase", "reveal",
-    "shadow", "max_chars", "max_duration", "y_offset")
+    "shadow", "max_chars", "max_duration", "y_offset", "margin_h", "single_line")
 
 
 def _words_transcript(words, language="en"):
@@ -1797,7 +1797,9 @@ def _burn_caption_style(video_path, out_path, sub_path, transcript, start, end,
             bg_opacity=s["bg_opacity"], effect=s["effect"],
             base_opacity=s["base_opacity"], uppercase=s["uppercase"],
             reveal=s["reveal"], shadow=s["shadow"],
-            y_offset=s.get("y_offset"))
+            y_offset=s.get("y_offset"),
+            margin_h=s.get("margin_h"),
+            single_line=s.get("single_line"))
         if max_chars is not None:
             opts["max_chars"] = max_chars
         if max_duration is not None:
@@ -6959,6 +6961,8 @@ class SubtitleRequest(BaseModel):
     # edits in the modal were silently discarded on the server render path.
     words: Optional[List[CaptionWordIn]] = None
     y_offset: Optional[float] = None
+    margin_h: Optional[int] = None
+    single_line: Optional[bool] = None
 
 
 @app.get("/api/clip/{job_id}/{clip_index}/transcript")
@@ -8289,6 +8293,8 @@ async def add_subtitles(req: SubtitleRequest, request: Request):
         effect=req.effect, base_opacity=req.base_opacity, uppercase=req.uppercase,
         reveal=req.reveal, shadow=req.shadow,
         y_offset=req.y_offset,
+        margin_h=req.margin_h,
+        single_line=req.single_line,
     )
     if req.max_chars is not None:
         karaoke_opts["max_chars"] = max(1, min(40, int(req.max_chars)))
@@ -10053,6 +10059,8 @@ async def captions_process_endpoint(
     preset_name = str(style_preset or "hormozi").lower()
     chosen_preset = CAPTION_PRESETS.get(preset_name) or CAPTION_PRESETS.get("hormozi") or AUTO_CAPTION_STYLE
     caption_style = dict(chosen_preset)
+    caption_style.setdefault("single_line", True)
+    caption_style.setdefault("max_chars", 12)
 
     generation_id = int(time.time())
     is_karaoke = (caption_style.get("style") or "karaoke") == "karaoke"

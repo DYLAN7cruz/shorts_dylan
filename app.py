@@ -9956,6 +9956,171 @@ async def translate_clip_subtitles(req: TranslateSubtitlesRequest, request: Requ
         "text": " ".join(w["text"] for w in remotion_captions),
     }
 
+
+@app.post("/api/captions/process")
+async def captions_process_endpoint(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    url: Optional[str] = Form(None),
+    style_preset: Optional[str] = Form("hormozi"),
+):
+    """Direct video transcription and auto-captioning studio without moment clipping.
+    Supports any duration (from 5 seconds up to 60+ minutes).
+    """
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            url = body.get("url") or url
+            style_preset = body.get("style_preset") or style_preset
+        except Exception:
+            pass
+
+    if not file and not url:
+        raise HTTPException(status_code=400, detail="Debes proporcionar un archivo de video o una URL.")
+
+    job_id = str(uuid.uuid4())
+    job_dir = os.path.join(OUTPUT_DIR, job_id)
+    os.makedirs(job_dir, exist_ok=True)
+
+    video_filename = None
+    if file:
+        safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', file.filename or 'video.mp4')
+        video_filename = f"source_{safe_name}"
+        video_path = os.path.join(job_dir, video_filename)
+        with open(video_path, "wb") as f_out:
+            while chunk := await file.read(1024 * 1024):
+                f_out.write(chunk)
+    else:
+        clean_url = (url or '').strip()
+        from main import download_youtube_video
+        try:
+            loop = asyncio.get_event_loop()
+            downloaded_path = await loop.run_in_executor(
+                None, download_youtube_video, clean_url, job_dir
+            )
+            if not downloaded_path or not os.path.exists(downloaded_path):
+                raise Exception("No se pudo descargar el video.")
+            video_filename = os.path.basename(downloaded_path)
+            video_path = downloaded_path
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error descargando video: {str(e)}")
+
+    import cv2
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = frame_count / fps if fps else 0.0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+
+    if duration < 3.0:
+        raise HTTPException(status_code=400, detail="El video es demasiado corto (mínimo 3 segundos).")
+
+    from subtitles import transcribe_audio, CAPTION_PRESETS, AUTO_CAPTION_STYLE
+    loop = asyncio.get_event_loop()
+    try:
+        transcript = await loop.run_in_executor(None, transcribe_audio, video_path)
+    except Exception as e:
+        err_msg = str(e)
+        if "no audio track" in err_msg.lower() or "no speech" in err_msg.lower() or "silent" in err_msg.lower():
+            raise HTTPException(status_code=400, detail="El video seleccionado no tiene pista de audio o está silenciado. Sube un video donde alguien hable.")
+        raise HTTPException(status_code=500, detail=f"Error transcribiendo audio con Whisper: {err_msg}")
+
+    captions = []
+    flat_words = []
+    for segment in transcript.get('segments', []):
+        for w in segment.get('words', []):
+            w_text = w.get('word', '').strip()
+            if w_text:
+                w_start = max(0.0, float(w.get('start', 0.0)))
+                w_end = max(w_start + 0.1, float(w.get('end', 0.0)))
+                flat_words.append({
+                    "word": " " + w_text,
+                    "start": round(w_start, 3),
+                    "end": round(w_end, 3)
+                })
+                captions.append({
+                    "text": w_text,
+                    "startMs": int(round(w_start * 1000)),
+                    "endMs": int(round(w_end * 1000)),
+                })
+
+    if not flat_words:
+        raise HTTPException(status_code=400, detail="No se detectó voz o habla en el video.")
+
+    preset_name = str(style_preset or "hormozi").lower()
+    chosen_preset = CAPTION_PRESETS.get(preset_name) or CAPTION_PRESETS.get("hormozi") or AUTO_CAPTION_STYLE
+    caption_style = dict(chosen_preset)
+
+    generation_id = int(time.time())
+    is_karaoke = (caption_style.get("style") or "karaoke") == "karaoke"
+    ext = "ass" if is_karaoke else "srt"
+    srt_filename = f"subs_0_{generation_id}.{ext}"
+    srt_path = os.path.join(job_dir, srt_filename)
+    subtitled_filename = f"subtitled_{generation_id}_{video_filename}"
+    output_path = os.path.join(job_dir, subtitled_filename)
+
+    sub_transcript = _words_transcript(flat_words, language=transcript.get("language", "en"))
+    sub_start = 0.0
+    sub_end = sub_transcript["segments"][0]["end"]
+
+    success = await loop.run_in_executor(
+        None, _burn_caption_style, video_path, output_path, srt_path,
+        sub_transcript, sub_start, sub_end, caption_style, None
+    )
+
+    final_video = subtitled_filename if success and os.path.exists(output_path) else video_filename
+
+    metadata = {
+        "job_id": job_id,
+        "title": os.path.splitext(video_filename)[0],
+        "video_path": video_path,
+        "duration": duration,
+        "width": width,
+        "height": height,
+        "transcript": transcript,
+        "shorts": [{
+            "clip_index": 0,
+            "start": 0.0,
+            "end": duration,
+            "video_url": f"/videos/{job_id}/{final_video}",
+            "raw_video_url": f"/videos/{job_id}/{video_filename}",
+            "caption_style": caption_style,
+            "caption_words": sub_transcript["segments"][0]["words"],
+        }]
+    }
+    meta_path = os.path.join(job_dir, f"{job_id}_metadata.json")
+    write_json_atomic(meta_path, metadata, indent=4)
+
+    jobs[job_id] = {
+        "status": "complete",
+        "result": {
+            "clips": [{
+                "video_url": f"/videos/{job_id}/{final_video}",
+                "raw_video_url": f"/videos/{job_id}/{video_filename}",
+                "start": 0.0,
+                "end": duration,
+                "caption_style": caption_style,
+            }]
+        }
+    }
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "video_url": f"/videos/{job_id}/{final_video}",
+        "raw_video_url": f"/videos/{job_id}/{video_filename}",
+        "captions": captions,
+        "duration": duration,
+        "language": transcript.get("language", "en"),
+        "width": width,
+        "height": height,
+        "caption_style": caption_style,
+    }
+
+
 class TranslateRequest(BaseModel):
     job_id: str
     clip_index: int

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Rocket } from 'lucide-react';
+import { Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Rocket, Type } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
 import McpConnectCard from './components/McpConnectCard';
@@ -7,6 +7,7 @@ import ResultCard from './components/ResultCard';
 import ProcessingAnimation from './components/ProcessingAnimation';
 // import Gallery from './components/Gallery';
 import ThumbnailStudio from './components/ThumbnailStudio';
+import AutoCaptionsTab from './components/AutoCaptionsTab';
 import SaaShortsTab from './components/SaaShortsTab';
 import UGCGallery from './components/UGCGallery';
 import ScheduleWeekModal from './components/ScheduleWeekModal';
@@ -1020,7 +1021,7 @@ function App() {
   // dropped so a reload does not keep forcing the tab.
   const [autopilotConnected, setAutopilotConnected] = useState(null); // connect outcome, see lib/connectReturn.js
   useEffect(() => {
-    const DEEP_LINK_TABS = ['autopilot', 'history', 'settings', 'thumbnails', 'dashboard', 'saasshorts'];
+    const DEEP_LINK_TABS = ['autopilot', 'history', 'settings', 'thumbnails', 'dashboard', 'saasshorts', 'captions'];
     const apply = () => {
       const hash = window.location.hash || '';
       if (!hash.startsWith('#app?')) return;
@@ -1381,14 +1382,15 @@ function App() {
   // wraps to two lines in a 5-up bar on a 360px phone.
   const navItems = [
     { id: 'dashboard', ord: '01', icon: LayoutDashboard, label: 'Clip Generator', short: 'clips', primary: true },
+    { id: 'captions', ord: '02', icon: Type, label: 'Auto Subtítulos', short: 'subtítulos', primary: true, isNew: true },
     // Cloud only: it runs on the managed pipeline and the Upload-Post connection.
-    ...(billingEnabled ? [{ id: 'autopilot', ord: '02', icon: Rocket, label: 'Autopilot', short: 'autopilot', isNew: true }] : []),
-    { id: 'saasshorts', ord: '03', icon: Sparkles, label: 'AI Shorts', short: 'ai shorts', byok: true, primary: true },
-    { id: 'ai-agent', ord: '04', icon: Bot, label: 'AI Agent', short: 'agent', byok: true },
-    { id: 'ugc-gallery', ord: '05', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true },
-    { id: 'thumbnails', ord: '06', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true },
-    ...(billingEnabled && isSignedIn ? [{ id: 'history', ord: '07', icon: History, label: 'History', short: 'history' }] : [{ id: 'projects', ord: '07', icon: History, label: 'Mis Proyectos', short: 'proyectos', primary: true }]),
-    { id: 'settings', ord: '08', icon: Settings, label: 'Settings', short: 'settings' },
+    ...(billingEnabled ? [{ id: 'autopilot', ord: '03', icon: Rocket, label: 'Autopilot', short: 'autopilot', isNew: true }] : []),
+    { id: 'saasshorts', ord: '04', icon: Sparkles, label: 'AI Shorts', short: 'ai shorts', byok: true, primary: true },
+    { id: 'ai-agent', ord: '05', icon: Bot, label: 'AI Agent', short: 'agent', byok: true },
+    { id: 'ugc-gallery', ord: '06', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true },
+    { id: 'thumbnails', ord: '07', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true },
+    ...(billingEnabled && isSignedIn ? [{ id: 'history', ord: '08', icon: History, label: 'History', short: 'history' }] : [{ id: 'projects', ord: '08', icon: History, label: 'Mis Proyectos', short: 'proyectos', primary: true }]),
+    { id: 'settings', ord: '09', icon: Settings, label: 'Settings', short: 'settings' },
   ];
   const activeNav = navItems.find((n) => n.id === activeTab);
 
@@ -2197,6 +2199,11 @@ function App() {
                 handleProcess({ type: 'thumbnail_session', payload: sessionId, acknowledged: true });
               }}
             />
+          )}
+
+          {/* View: Auto Captions Studio */}
+          {activeTab === 'captions' && (
+            <AutoCaptionsTab />
           )}
 
           {/* View: Gallery */}

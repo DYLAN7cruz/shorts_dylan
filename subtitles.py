@@ -290,6 +290,18 @@ CAPTION_PRESETS = {
                   "highlight_color": "#FFE500", "border_width": 4, "effect": "pop",
                   "uppercase": True, "bg_opacity": 1.0, "bg_color": "#000000",
                   "max_chars": 11},
+    "beast_yellow": {**_PRESET_BASE, "font_name": "The Bold Font", "font_size": 46,
+                     "highlight_color": "#FFFF00", "border_width": 4, "effect": "pop",
+                     "uppercase": True, "max_chars": 12},
+    "gamer": {**_PRESET_BASE, "font_name": "Luckiest Guy", "font_size": 44,
+              "highlight_color": "#00FF88", "border_width": 4, "effect": "pop",
+              "uppercase": True, "max_chars": 11},
+    "poppins_clean": {**_PRESET_BASE, "font_name": "Poppins", "font_size": 38,
+                      "highlight_color": "#FFE500", "border_width": 3, "effect": "pop",
+                      "uppercase": False, "max_chars": 12},
+    "bebas_bold": {**_PRESET_BASE, "font_name": "Bebas Neue", "font_size": 48,
+                   "highlight_color": "#FF3333", "border_width": 3, "effect": "pop",
+                   "uppercase": True, "max_chars": 14},
     # One big word at a time.
     "oneword": {**_PRESET_BASE, "font_name": "Anton", "font_size": 70,
                 "highlight_color": "#FFFFFF", "border_width": 5, "effect": "pop",
@@ -313,7 +325,8 @@ CAPTION_PRESETS = {
 # Montserrat wide). Mirrors lineBudget in SubtitleModal.jsx.
 _LINE_CHARS = {
     "Anton": 16, "Montserrat ExtraBold": 9, "Impact": 16,
-    "Archivo Black": 11, "The Bold Font": 14, "Bebas Neue": 16, "Poppins": 11, "Komika Axis": 13
+    "Archivo Black": 11, "The Bold Font": 14, "Bebas Neue": 16, "Poppins": 11,
+    "Luckiest Guy": 11, "Komika Axis": 12, "Noto Sans Black": 10
 }
 
 
@@ -334,11 +347,13 @@ _FONT_FILES = {
     "Anton": "Anton-Regular.ttf",
     "Impact": "Anton-Regular.ttf",
     "The Bold Font": "Anton-Regular.ttf",
-    "Bebas Neue": "Anton-Regular.ttf",
+    "Bebas Neue": "BebasNeue-Regular.ttf",
     "Archivo Black": "ArchivoBlack-Regular.ttf",
     "Montserrat ExtraBold": "Montserrat-ExtraBold.ttf",
-    "Poppins": "Montserrat-ExtraBold.ttf",
-    "Komika Axis": "Anton-Regular.ttf"
+    "Poppins": "Poppins-Bold.ttf",
+    "Luckiest Guy": "LuckiestGuy-Regular.ttf",
+    "Komika Axis": "LuckiestGuy-Regular.ttf",
+    "Noto Sans Black": "NotoSans-Black.ttf"
 }
 # PlayResX that libass derives for a 9:16 frame from PlayResY 288, minus the
 # style's MarginL + MarginR (10 each).

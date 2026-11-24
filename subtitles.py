@@ -554,14 +554,12 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     if bg_opacity > 0:
         border_style = 3
         outline_colour = hex_to_ass_color(bg_color, bg_opacity, fallback="000000")
-        outline_width = max(3, int(border_width))
+        outline_width = max(2, int(border_width))
     else:
         border_style = 1
         outline_colour = hex_to_ass_color(border_color, 1.0, fallback="000000")
-        # 0 is a real choice now (the shadow-only "clean" look); before the
-        # slider's "None" still drew a 1px outline. Without a shadow keep the
-        # old floor, or white text on a white wall disappears.
-        outline_width = int(border_width) if shadow else max(1, int(border_width))
+        # Keep outline crisp (1-2px in 288p coords) matching web font strokes without clogging letter counters
+        outline_width = max(1, min(2, round(_clamp_number(border_width, 0, 10, 2) * 0.35))) if not shadow else int(border_width)
 
     back_colour = hex_to_ass_color("#000000", 0.55 if shadow else 0.0)
     highlight_inline = _hex_to_ass_inline_color(highlight_color, fallback="FFD700")

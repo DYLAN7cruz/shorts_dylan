@@ -524,7 +524,7 @@ export default function AutoCaptionsTab() {
     };
 
     // Burn / Export final video with FFmpeg using exact styling, 1-line mode & margins
-    const handleExportFinalVideo = async (autoDownload = false) => {
+    const handleExportFinalVideo = async (autoDownload = true) => {
         if (!jobData) return;
         setIsApplying(true);
         setError(null);
@@ -573,22 +573,36 @@ export default function AutoCaptionsTab() {
 
             const data = await res.json();
             if (data.new_video_url) {
-                const fullBurnedUrl = getApiUrl(data.new_video_url);
-                setBurnedVideoUrl(fullBurnedUrl);
-                setCurrentVideoUrl(fullBurnedUrl);
+                // Cache-busting query to guarantee browser plays and downloads latest video
+                const timestamp = Date.now();
+                const freshUrl = `${getApiUrl(data.new_video_url)}?v=${timestamp}`;
+                setBurnedVideoUrl(freshUrl);
+                setCurrentVideoUrl(freshUrl);
                 setActiveViewMode('burned');
                 setLastBurnedSignature(currentSignature);
-                if (videoRef.current) videoRef.current.load();
+                if (videoRef.current) {
+                    videoRef.current.load();
+                    videoRef.current.currentTime = 0;
+                }
                 setApplySuccess(true);
                 setTimeout(() => setApplySuccess(false), 5000);
 
                 if (autoDownload) {
-                    const downloadAnchor = document.createElement('a');
-                    downloadAnchor.href = fullBurnedUrl;
-                    downloadAnchor.download = `subtitled_${jobData.job_id}.mp4`;
-                    document.body.appendChild(downloadAnchor);
-                    downloadAnchor.click();
-                    document.body.removeChild(downloadAnchor);
+                    try {
+                        const videoResp = await fetch(freshUrl);
+                        const blob = await videoResp.blob();
+                        const blobUrl = window.URL.createObjectURL(blob);
+                        const downloadAnchor = document.createElement('a');
+                        downloadAnchor.href = blobUrl;
+                        downloadAnchor.download = `video_subtitulado_${jobData.job_id.slice(0, 8)}.mp4`;
+                        document.body.appendChild(downloadAnchor);
+                        downloadAnchor.click();
+                        document.body.removeChild(downloadAnchor);
+                        window.URL.revokeObjectURL(blobUrl);
+                    } catch (dlErr) {
+                        // Fallback in case fetch blob is blocked
+                        window.open(freshUrl, '_blank');
+                    }
                 }
             }
         } catch (err) {
@@ -1008,7 +1022,7 @@ export default function AutoCaptionsTab() {
                                         }`}
                                     >
                                         <Sparkles size={13} />
-                                        <span>Video Quemado MP4 {isDirty ? '(Anterior)' : ''}</span>
+                                        <span>Video Final (MP4)</span>
                                     </button>
                                 )}
                             </div>
@@ -1116,107 +1130,63 @@ export default function AutoCaptionsTab() {
                                 </div>
                             </div>
 
-                            {/* Export & Download Card */}
-                            <div className="card p-4 space-y-3">
-                                {isDirty ? (
-                                    <>
-                                        <div className="p-3 rounded-card bg-brass/10 border border-brass/40 flex items-start gap-2.5">
-                                            <Sparkles size={16} className="text-brass shrink-0 mt-0.5" />
-                                            <div className="text-xs">
-                                                <p className="font-semibold text-ink">Tienes cambios personalizados listos</p>
-                                                <p className="text-muted mt-0.5">
-                                                    Has modificado el estilo (fuente, color de caja, posición o texto). Guarda y descarga para que tu video final tenga exactamente tu diseño editado.
-                                                </p>
-                                            </div>
-                                        </div>
+                            {/* Guardar y Descargar Card */}
+                            <div className="card p-4 sm:p-5 space-y-4 border border-brass/50 bg-paper2 shadow-lg">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-brass animate-pulse"></span>
+                                        <span className="text-xs font-bold text-ink uppercase tracking-wider">
+                                            GUARDAR Y DESCARGAR VIDEO
+                                        </span>
+                                    </div>
+                                    {applySuccess && (
+                                        <span className="text-xs text-ok font-semibold flex items-center gap-1 animate-fade">
+                                            <Check size={14} /> ¡Guardado y descargado!
+                                        </span>
+                                    )}
+                                </div>
 
-                                        <button
-                                            onClick={() => handleExportFinalVideo(true)}
-                                            disabled={isApplying}
-                                            className="w-full btn-primary py-3 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg shadow-brass/20 cursor-pointer"
-                                        >
-                                            {isApplying ? (
-                                                <>
-                                                    <Loader2 size={18} className="animate-spin" />
-                                                    <span>Quemando video con FFmpeg y preparando descarga...</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Download size={18} />
-                                                    <span>⚡ Guardar y Descargar Video Final (MP4)</span>
-                                                </>
-                                            )}
-                                        </button>
+                                <p className="text-xs text-muted leading-relaxed">
+                                    Al pulsar el botón, el sistema guarda tu diseño (fuente, colores, posición y texto) y descarga directamente el archivo <strong>MP4</strong> a tu computadora listo para publicar.
+                                </p>
 
-                                        <button
-                                            onClick={() => handleExportFinalVideo(false)}
-                                            disabled={isApplying}
-                                            className="w-full py-2 px-3 rounded-input bg-paper3 hover:bg-paper2 text-ink2 hover:text-ink text-xs font-medium border border-rule transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                                        >
-                                            <Eye size={14} />
-                                            <span>Solo exportar para ver en reproductor (sin descargar)</span>
-                                        </button>
-                                    </>
-                                ) : (
-                                    <>
-                                        {burnedVideoUrl ? (
-                                            <>
-                                                <div className="p-2.5 rounded-card bg-ok/10 border border-ok/30 flex items-center gap-2 text-xs text-ok">
-                                                    <Check size={16} className="shrink-0 font-bold" />
-                                                    <span>¡Video MP4 listo con todos tus cambios de edición!</span>
-                                                </div>
+                                <button
+                                    onClick={() => handleExportFinalVideo(true)}
+                                    disabled={isApplying}
+                                    className="w-full btn-primary py-3.5 px-4 rounded-input text-sm sm:text-base font-bold flex items-center justify-center gap-2.5 shadow-xl shadow-brass/25 hover:brightness-110 active:scale-[0.99] transition-all cursor-pointer"
+                                >
+                                    {isApplying ? (
+                                        <>
+                                            <Loader2 size={20} className="animate-spin text-black" />
+                                            <span className="text-black">Guardando cambios y descargando video MP4...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Download size={20} className="text-black stroke-[2.5]" />
+                                            <span className="text-black">💾 Guardar y Descargar Video Final (MP4)</span>
+                                        </>
+                                    )}
+                                </button>
 
-                                                <a
-                                                    href={burnedVideoUrl}
-                                                    download={`subtitled_${jobData.job_id}.mp4`}
-                                                    className="w-full btn-primary py-3 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg shadow-brass/20"
-                                                >
-                                                    <Download size={18} />
-                                                    <span>Descargar Video Final MP4 a tu PC</span>
-                                                </a>
-
-                                                <button
-                                                    onClick={() => handleExportFinalVideo(false)}
-                                                    disabled={isApplying}
-                                                    className="w-full py-2 px-3 rounded-input bg-paper3 hover:bg-paper2 text-muted hover:text-ink text-xs font-medium border border-rule transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                                                >
-                                                    {isApplying ? (
-                                                        <>
-                                                            <Loader2 size={14} className="animate-spin" />
-                                                            <span>Re-exportando...</span>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <RefreshCw size={13} />
-                                                            <span>Volver a quemar con FFmpeg</span>
-                                                        </>
-                                                    )}
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <button
-                                                onClick={() => handleExportFinalVideo(true)}
-                                                disabled={isApplying}
-                                                className="w-full btn-primary py-3 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg shadow-brass/20 cursor-pointer"
-                                            >
-                                                {isApplying ? (
-                                                    <>
-                                                        <Loader2 size={18} className="animate-spin" />
-                                                        <span>Quemando video final con FFmpeg...</span>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Download size={18} />
-                                                        <span>Exportar y Descargar Video Final (MP4)</span>
-                                                    </>
-                                                )}
-                                            </button>
-                                        )}
-                                    </>
+                                {burnedVideoUrl && !isApplying && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setActiveViewMode('burned');
+                                            if (videoRef.current) {
+                                                videoRef.current.currentTime = 0;
+                                                videoRef.current.play();
+                                            }
+                                        }}
+                                        className="w-full py-2 px-3 rounded-input bg-paper3 hover:bg-paper2 text-ink2 hover:text-ink text-xs font-medium border border-rule transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                                    >
+                                        <Play size={13} className="text-brass" />
+                                        <span>Reproducir video guardado en pantalla</span>
+                                    </button>
                                 )}
 
                                 <p className="text-center text-[11px] text-muted leading-relaxed">
-                                    💡 El texto desaparece automáticamente cuando la persona deja de hablar. Al exportar, se graba en alta calidad con el color de caja y fuente elegidos.
+                                    💡 El texto desaparece automáticamente cuando la persona deja de hablar. Al guardar, el video se genera en alta calidad con el diseño que ves en pantalla.
                                 </p>
                             </div>
 

@@ -248,9 +248,40 @@ export default function AutoCaptionsTab() {
     // Export / Final Burn State
     const [isApplying, setIsApplying] = useState(false);
     const [applySuccess, setApplySuccess] = useState(false);
+    const [lastBurnedSignature, setLastBurnedSignature] = useState(null);
 
     const videoRef = useRef(null);
     const videoContainerRef = useRef(null);
+
+    // Track active style signature to reliably detect unburned customizations
+    const currentSignature = useMemo(() => {
+        return JSON.stringify({
+            fontName,
+            fontSize,
+            fontColor,
+            highlightColor,
+            effect,
+            borderWidth,
+            coverBox,
+            uppercase,
+            yOffset,
+            xOffset,
+            singleLine,
+            sideMarginWidth,
+            words: (captions || []).map(c => `${c.startMs}-${c.endMs}-${c.text}`).join('|')
+        });
+    }, [
+        fontName, fontSize, fontColor, highlightColor, effect,
+        borderWidth, coverBox, uppercase, yOffset, xOffset,
+        singleLine, sideMarginWidth, captions
+    ]);
+
+    // Has user modified anything (font, color, position, margins, singleLine, text) since last burn?
+    const isDirty = useMemo(() => {
+        if (!jobData) return false;
+        if (!lastBurnedSignature) return true;
+        return currentSignature !== lastBurnedSignature;
+    }, [jobData, lastBurnedSignature, currentSignature]);
 
     // Track container width for true proportional preview font sizing
     useEffect(() => {
@@ -418,14 +449,38 @@ export default function AutoCaptionsTab() {
             setEditableText((data.captions || []).map(c => c.text).join(' '));
 
             // Sync initial style
-            if (data.caption_style) {
-                setFontName(data.caption_style.font_name || 'Montserrat ExtraBold');
-                setFontSize(data.caption_style.font_size || 44);
-                setFontColor(data.caption_style.font_color || '#FFFFFF');
-                setHighlightColor(data.caption_style.highlight_color || '#A3FF12');
-                setEffect(data.caption_style.effect || 'highlight');
-                setBorderWidth(data.caption_style.border_width ?? 3);
-            }
+            const initStyle = data.caption_style || {};
+            const initialFontName = initStyle.font_name || 'Montserrat ExtraBold';
+            const initialFontSize = initStyle.font_size || 44;
+            const initialFontColor = initStyle.font_color || '#FFFFFF';
+            const initialHighlightColor = initStyle.highlight_color || '#A3FF12';
+            const initialEffect = initStyle.effect || 'highlight';
+            const initialBorderWidth = initStyle.border_width ?? 3;
+
+            setFontName(initialFontName);
+            setFontSize(initialFontSize);
+            setFontColor(initialFontColor);
+            setHighlightColor(initialHighlightColor);
+            setEffect(initialEffect);
+            setBorderWidth(initialBorderWidth);
+
+            // Compute signature for the auto-burned initial video
+            const initialSig = JSON.stringify({
+                fontName: initialFontName,
+                fontSize: initialFontSize,
+                fontColor: initialFontColor,
+                highlightColor: initialHighlightColor,
+                effect: initialEffect,
+                borderWidth: initialBorderWidth,
+                coverBox: false,
+                uppercase: true,
+                yOffset: 0.80,
+                xOffset: 0.50,
+                singleLine: true,
+                sideMarginWidth: 82,
+                words: (data.captions || []).map(c => `${c.startMs}-${c.endMs}-${c.text}`).join('|')
+            });
+            setLastBurnedSignature(initialSig);
         } catch (err) {
             setError(err.message || 'Error al generar subtítulos.');
         } finally {
@@ -469,7 +524,7 @@ export default function AutoCaptionsTab() {
     };
 
     // Burn / Export final video with FFmpeg using exact styling, 1-line mode & margins
-    const handleExportFinalVideo = async () => {
+    const handleExportFinalVideo = async (autoDownload = false) => {
         if (!jobData) return;
         setIsApplying(true);
         setError(null);
@@ -522,9 +577,19 @@ export default function AutoCaptionsTab() {
                 setBurnedVideoUrl(fullBurnedUrl);
                 setCurrentVideoUrl(fullBurnedUrl);
                 setActiveViewMode('burned');
+                setLastBurnedSignature(currentSignature);
                 if (videoRef.current) videoRef.current.load();
                 setApplySuccess(true);
-                setTimeout(() => setApplySuccess(false), 4000);
+                setTimeout(() => setApplySuccess(false), 5000);
+
+                if (autoDownload) {
+                    const downloadAnchor = document.createElement('a');
+                    downloadAnchor.href = fullBurnedUrl;
+                    downloadAnchor.download = `subtitled_${jobData.job_id}.mp4`;
+                    document.body.appendChild(downloadAnchor);
+                    downloadAnchor.click();
+                    document.body.removeChild(downloadAnchor);
+                }
             }
         } catch (err) {
             setError(err.message || 'Error exportando video subtitulado.');
@@ -556,6 +621,7 @@ export default function AutoCaptionsTab() {
         setCurrentVideoUrl(null);
         setRawVideoUrl(null);
         setBurnedVideoUrl(null);
+        setLastBurnedSignature(null);
         setCaptions([]);
         setEditableText('');
         setFile(null);
@@ -942,7 +1008,7 @@ export default function AutoCaptionsTab() {
                                         }`}
                                     >
                                         <Sparkles size={13} />
-                                        <span>Video Quemado MP4</span>
+                                        <span>Video Quemado MP4 {isDirty ? '(Anterior)' : ''}</span>
                                     </button>
                                 )}
                             </div>
@@ -1052,33 +1118,101 @@ export default function AutoCaptionsTab() {
 
                             {/* Export & Download Card */}
                             <div className="card p-4 space-y-3">
-                                <button
-                                    onClick={handleExportFinalVideo}
-                                    disabled={isApplying}
-                                    className="w-full btn-primary py-3 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg shadow-brass/10"
-                                >
-                                    {isApplying ? (
-                                        <>
-                                            <Loader2 size={18} className="animate-spin" />
-                                            <span>Quemando Subtítulos en Alta Calidad con FFmpeg...</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Sparkles size={18} />
-                                            <span>Exportar Video Final Subtitulado (MP4)</span>
-                                        </>
-                                    )}
-                                </button>
+                                {isDirty ? (
+                                    <>
+                                        <div className="p-3 rounded-card bg-brass/10 border border-brass/40 flex items-start gap-2.5">
+                                            <Sparkles size={16} className="text-brass shrink-0 mt-0.5" />
+                                            <div className="text-xs">
+                                                <p className="font-semibold text-ink">Tienes cambios personalizados listos</p>
+                                                <p className="text-muted mt-0.5">
+                                                    Has modificado el estilo (fuente, color de caja, posición o texto). Guarda y descarga para que tu video final tenga exactamente tu diseño editado.
+                                                </p>
+                                            </div>
+                                        </div>
 
-                                {burnedVideoUrl && (
-                                    <a
-                                        href={burnedVideoUrl}
-                                        download={`subtitled_${jobData.job_id}.mp4`}
-                                        className="w-full py-2.5 px-4 rounded-input bg-paper3 hover:bg-brass hover:text-black text-ink font-semibold text-xs flex items-center justify-center gap-2 border border-rule hover:border-brass transition-all"
-                                    >
-                                        <Download size={16} />
-                                        <span>Descargar Video Final MP4 a tu PC</span>
-                                    </a>
+                                        <button
+                                            onClick={() => handleExportFinalVideo(true)}
+                                            disabled={isApplying}
+                                            className="w-full btn-primary py-3 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg shadow-brass/20 cursor-pointer"
+                                        >
+                                            {isApplying ? (
+                                                <>
+                                                    <Loader2 size={18} className="animate-spin" />
+                                                    <span>Quemando video con FFmpeg y preparando descarga...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Download size={18} />
+                                                    <span>⚡ Guardar y Descargar Video Final (MP4)</span>
+                                                </>
+                                            )}
+                                        </button>
+
+                                        <button
+                                            onClick={() => handleExportFinalVideo(false)}
+                                            disabled={isApplying}
+                                            className="w-full py-2 px-3 rounded-input bg-paper3 hover:bg-paper2 text-ink2 hover:text-ink text-xs font-medium border border-rule transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                                        >
+                                            <Eye size={14} />
+                                            <span>Solo exportar para ver en reproductor (sin descargar)</span>
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        {burnedVideoUrl ? (
+                                            <>
+                                                <div className="p-2.5 rounded-card bg-ok/10 border border-ok/30 flex items-center gap-2 text-xs text-ok">
+                                                    <Check size={16} className="shrink-0 font-bold" />
+                                                    <span>¡Video MP4 listo con todos tus cambios de edición!</span>
+                                                </div>
+
+                                                <a
+                                                    href={burnedVideoUrl}
+                                                    download={`subtitled_${jobData.job_id}.mp4`}
+                                                    className="w-full btn-primary py-3 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg shadow-brass/20"
+                                                >
+                                                    <Download size={18} />
+                                                    <span>Descargar Video Final MP4 a tu PC</span>
+                                                </a>
+
+                                                <button
+                                                    onClick={() => handleExportFinalVideo(false)}
+                                                    disabled={isApplying}
+                                                    className="w-full py-2 px-3 rounded-input bg-paper3 hover:bg-paper2 text-muted hover:text-ink text-xs font-medium border border-rule transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                                                >
+                                                    {isApplying ? (
+                                                        <>
+                                                            <Loader2 size={14} className="animate-spin" />
+                                                            <span>Re-exportando...</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <RefreshCw size={13} />
+                                                            <span>Volver a quemar con FFmpeg</span>
+                                                        </>
+                                                    )}
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <button
+                                                onClick={() => handleExportFinalVideo(true)}
+                                                disabled={isApplying}
+                                                className="w-full btn-primary py-3 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg shadow-brass/20 cursor-pointer"
+                                            >
+                                                {isApplying ? (
+                                                    <>
+                                                        <Loader2 size={18} className="animate-spin" />
+                                                        <span>Quemando video final con FFmpeg...</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Download size={18} />
+                                                        <span>Exportar y Descargar Video Final (MP4)</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        )}
+                                    </>
                                 )}
 
                                 <p className="text-center text-[11px] text-muted leading-relaxed">

@@ -506,7 +506,12 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     max_chars=1 puts one word on screen at a time.
     """
     # Match the SRT burn path: PlayResY 288 keeps font sizes consistent.
-    final_fontsize = int(_clamp_number(fontsize, 10, 200, 16) * 0.85)
+    # UI fontSize typically ranges from 24 to 72 (default 44). Map to PlayResY=288 units:
+    raw_size = _clamp_number(fontsize, 10, 200, 16)
+    if raw_size > 24:
+        final_fontsize = int(round(raw_size * 0.42))
+    else:
+        final_fontsize = int(raw_size)
     if final_fontsize < 10:
         final_fontsize = 10
 
@@ -604,9 +609,9 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     active_style = ""
     if effect == "highlight":
         box_colour = hex_to_ass_color(highlight_color, 1.0, fallback="FFD700")
-        on_box = "#000000" if _luminance(highlight_color) > 0.6 else font_color
+        on_box = "#000000" if _luminance(highlight_color) > 0.58 else font_color
         # Padding scales with the text so the box keeps its shape at any size.
-        pad = max(2, round(final_fontsize * 0.12))
+        pad = max(1, min(3, round(final_fontsize * 0.10)))
         active_style = (
             f"Style: Active,{safe_font},{final_fontsize},"
             f"{hex_to_ass_color(on_box, 1.0)},{hex_to_ass_color(on_box, 1.0)},"
@@ -734,6 +739,11 @@ def _sanitize_font_name(name):
     """Strip anything but [A-Za-z0-9 _-] so the font name can't inject extra
     ASS override fields (commas/braces/backslashes) into force_style."""
     cleaned = _FONT_NAME_RE.sub('', str(name or '')).strip()
+    c_lower = cleaned.lower()
+    if c_lower in ('the bold font', 'bold font'):
+        return 'Anton'
+    if c_lower in ('komika axis', 'komika'):
+        return 'Luckiest Guy'
     return cleaned or "Verdana"
 
 
@@ -763,8 +773,12 @@ def subtitles_filter(srt_path, alignment=2, fontsize=16,
             ass_alignment = 2
 
     # Font size scaling for ASS virtual resolution (PlayResY=288 default)
-    # For vertical 1080x1920 video, we need larger text for readability
-    final_fontsize = int(_clamp_number(fontsize, 10, 200, 16) * 0.85)
+    # UI fontSize typically ranges from 24 to 72 (default 44). Map to PlayResY=288 units:
+    raw_size = _clamp_number(fontsize, 10, 200, 16)
+    if raw_size > 24:
+        final_fontsize = int(round(raw_size * 0.42))
+    else:
+        final_fontsize = int(raw_size)
     if final_fontsize < 10:
         final_fontsize = 10
 

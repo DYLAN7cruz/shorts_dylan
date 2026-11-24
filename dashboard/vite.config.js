@@ -30,6 +30,10 @@ export default defineConfig({
     },
   },
   server: {
+    watch: {
+      usePolling: true,
+      interval: 500,
+    },
     allowedHosts: [
       'openshorts.app',
       'www.openshorts.app'

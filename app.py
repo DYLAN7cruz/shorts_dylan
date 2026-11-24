@@ -8407,6 +8407,30 @@ async def add_subtitles(req: SubtitleRequest, request: Request):
         "new_video_url": f"/videos/{req.job_id}/{output_filename}"
     }
 
+
+@app.get("/api/download/{job_id}/{filename}")
+async def download_video_attachment(job_id: str, filename: str):
+    """Direct attachment download endpoint for subtitled and exported videos.
+    Forces browser to download the file directly to user's disk instead of streaming inline.
+    """
+    clean_filename = os.path.basename(filename.split("?")[0])
+    file_path = os.path.join(OUTPUT_DIR, job_id, clean_filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {clean_filename}")
+
+    return FileResponse(
+        path=file_path,
+        media_type="video/mp4",
+        filename=clean_filename,
+        headers={
+            "Content-Disposition": f'attachment; filename="{clean_filename}"',
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
+
+
 class RemoveSubtitlesRequest(BaseModel):
     job_id: str
     clip_index: int
@@ -10237,6 +10261,7 @@ async def translate_clip(
         "success": True,
         "new_video_url": f"/videos/{req.job_id}/{output_filename}"
     }
+
 
 class SocialPostRequest(BaseModel):
     job_id: str

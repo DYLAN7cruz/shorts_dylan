@@ -523,6 +523,22 @@ export default function AutoCaptionsTab() {
         }
     };
 
+    // Native direct file download via dedicated attachment endpoint
+    const triggerFileDownload = (videoPath) => {
+        if (!jobData || !videoPath) return;
+        const filename = videoPath.split('/').pop().split('?')[0];
+        const downloadUrl = getApiUrl(`/api/download/${jobData.job_id}/${filename}?v=${Date.now()}`);
+
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+            try { document.body.removeChild(link); } catch (_) {}
+        }, 2000);
+    };
+
     // Burn / Export final video with FFmpeg using exact styling, 1-line mode & margins
     const handleExportFinalVideo = async (autoDownload = true) => {
         if (!jobData) return;
@@ -588,27 +604,25 @@ export default function AutoCaptionsTab() {
                 setTimeout(() => setApplySuccess(false), 5000);
 
                 if (autoDownload) {
-                    try {
-                        const videoResp = await fetch(freshUrl);
-                        const blob = await videoResp.blob();
-                        const blobUrl = window.URL.createObjectURL(blob);
-                        const downloadAnchor = document.createElement('a');
-                        downloadAnchor.href = blobUrl;
-                        downloadAnchor.download = `video_subtitulado_${jobData.job_id.slice(0, 8)}.mp4`;
-                        document.body.appendChild(downloadAnchor);
-                        downloadAnchor.click();
-                        document.body.removeChild(downloadAnchor);
-                        window.URL.revokeObjectURL(blobUrl);
-                    } catch (dlErr) {
-                        // Fallback in case fetch blob is blocked
-                        window.open(freshUrl, '_blank');
-                    }
+                    triggerFileDownload(data.new_video_url);
                 }
             }
         } catch (err) {
             setError(err.message || 'Error exportando video subtitulado.');
         } finally {
             setIsApplying(false);
+        }
+    };
+
+    // Primary action: If there are unsaved edits, burn and download; otherwise download directly
+    const handleSaveAndDownload = async () => {
+        if (!jobData || isApplying) return;
+        if (isDirty || !burnedVideoUrl) {
+            await handleExportFinalVideo(true);
+        } else {
+            triggerFileDownload(burnedVideoUrl);
+            setApplySuccess(true);
+            setTimeout(() => setApplySuccess(false), 4000);
         }
     };
 
@@ -1022,10 +1036,26 @@ export default function AutoCaptionsTab() {
                                         }`}
                                     >
                                         <Sparkles size={13} />
-                                        <span>Video Final (MP4)</span>
+                                        <span>Video Guardado (MP4)</span>
+                                        {isDirty && <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" title="Hay cambios nuevos sin guardar"></span>}
                                     </button>
                                 )}
                             </div>
+
+                            {/* Warning if looking at older burned video while having unsaved edits */}
+                            {activeViewMode === 'burned' && isDirty && (
+                                <div className="p-2 px-3 rounded-input bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between gap-2 animate-fade">
+                                    <span>⚠️ Viendo guardado anterior. Tienes cambios en el editor.</span>
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveAndDownload}
+                                        disabled={isApplying}
+                                        className="text-brass font-bold hover:underline cursor-pointer shrink-0"
+                                    >
+                                        Guardar y Actualizar
+                                    </button>
+                                </div>
+                            )}
 
                             {/* Player Container with Interactive Subtitle Overlay */}
                             <div 
@@ -1141,48 +1171,70 @@ export default function AutoCaptionsTab() {
                                     </div>
                                     {applySuccess && (
                                         <span className="text-xs text-ok font-semibold flex items-center gap-1 animate-fade">
-                                            <Check size={14} /> ¡Guardado y descargado!
+                                            <Check size={14} /> ¡Descargando video!
                                         </span>
                                     )}
                                 </div>
 
+                                {/* Status banner */}
+                                {isDirty ? (
+                                    <div className="p-2.5 rounded-input bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+                                        <span>⚠️ Tienes cambios listos. Haz clic en el botón naranja para quemar tu nuevo diseño y descargar.</span>
+                                    </div>
+                                ) : burnedVideoUrl ? (
+                                    <div className="p-2.5 rounded-input bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+                                        <span>✅ Tu video está guardado con el diseño exacto que ves en pantalla.</span>
+                                    </div>
+                                ) : null}
+
                                 <p className="text-xs text-muted leading-relaxed">
-                                    Al pulsar el botón, el sistema guarda tu diseño (fuente, colores, posición y texto) y descarga directamente el archivo <strong>MP4</strong> a tu computadora listo para publicar.
+                                    Guarda tu personalización (fuente, colores, caja de resalte, posición y texto) y descarga directamente el archivo <strong>MP4</strong> a tu computadora.
                                 </p>
 
                                 <button
-                                    onClick={() => handleExportFinalVideo(true)}
+                                    onClick={handleSaveAndDownload}
                                     disabled={isApplying}
                                     className="w-full btn-primary py-3.5 px-4 rounded-input text-sm sm:text-base font-bold flex items-center justify-center gap-2.5 shadow-xl shadow-brass/25 hover:brightness-110 active:scale-[0.99] transition-all cursor-pointer"
                                 >
                                     {isApplying ? (
                                         <>
                                             <Loader2 size={20} className="animate-spin text-black" />
-                                            <span className="text-black">Guardando cambios y descargando video MP4...</span>
+                                            <span className="text-black">Guardando cambios y procesando MP4 con FFmpeg...</span>
                                         </>
                                     ) : (
                                         <>
                                             <Download size={20} className="text-black stroke-[2.5]" />
-                                            <span className="text-black">💾 Guardar y Descargar Video Final (MP4)</span>
+                                            <span className="text-black">💾 Guardar y Descargar Video (MP4)</span>
                                         </>
                                     )}
                                 </button>
 
                                 {burnedVideoUrl && !isApplying && (
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setActiveViewMode('burned');
-                                            if (videoRef.current) {
-                                                videoRef.current.currentTime = 0;
-                                                videoRef.current.play();
-                                            }
-                                        }}
-                                        className="w-full py-2 px-3 rounded-input bg-paper3 hover:bg-paper2 text-ink2 hover:text-ink text-xs font-medium border border-rule transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                                    >
-                                        <Play size={13} className="text-brass" />
-                                        <span>Reproducir video guardado en pantalla</span>
-                                    </button>
+                                    <div className="grid grid-cols-2 gap-2 pt-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setActiveViewMode('burned');
+                                                if (videoRef.current) {
+                                                    videoRef.current.currentTime = 0;
+                                                    videoRef.current.play();
+                                                }
+                                            }}
+                                            className="py-2 px-3 rounded-input bg-paper3 hover:bg-paper2 text-ink2 hover:text-ink text-xs font-medium border border-rule transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                                        >
+                                            <Play size={13} className="text-brass" />
+                                            <span>Ver en pantalla</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => triggerFileDownload(burnedVideoUrl)}
+                                            className="py-2 px-3 rounded-input bg-paper3 hover:bg-paper2 text-ink2 hover:text-ink text-xs font-medium border border-rule transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                                            title="Descarga el video MP4 que ya fue guardado"
+                                        >
+                                            <Download size={13} className="text-brass" />
+                                            <span>Descargar MP4</span>
+                                        </button>
+                                    </div>
                                 )}
 
                                 <p className="text-center text-[11px] text-muted leading-relaxed">
